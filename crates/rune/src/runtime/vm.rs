@@ -184,6 +184,21 @@ impl Vm {
         Ok(())
     }
 
+    /// The result of a comparison of two signed integers, or `None` when the
+    /// operation is not a comparison.
+    #[inline(always)]
+    fn signed_compare(op: InstOp, lhs: i64, rhs: i64) -> Option<bool> {
+        match op {
+            InstOp::Lt => Some(lhs < rhs),
+            InstOp::Le => Some(lhs <= rhs),
+            InstOp::Gt => Some(lhs > rhs),
+            InstOp::Ge => Some(lhs >= rhs),
+            InstOp::Eq => Some(lhs == rhs),
+            InstOp::Neq => Some(lhs != rhs),
+            _ => None,
+        }
+    }
+
     /// The result of an arithmetic operation on two signed integers, or `None`
     /// when it overflows or divides by zero.
     #[inline(always)]
@@ -1708,17 +1723,7 @@ impl Vm {
             self.stack.at(lhs).as_inline_signed(),
             self.stack.at(rhs).as_inline_signed(),
         ) {
-            let result = match op {
-                InstOp::Lt => Some(a < b),
-                InstOp::Le => Some(a <= b),
-                InstOp::Gt => Some(a > b),
-                InstOp::Ge => Some(a >= b),
-                InstOp::Eq => Some(a == b),
-                InstOp::Neq => Some(a != b),
-                _ => None,
-            };
-
-            if let Some(result) = result {
+            if let Some(result) = Self::signed_compare(op, a, b) {
                 return self.store_inline(out, Inline::Bool(result));
             }
         }
@@ -3627,6 +3632,25 @@ impl Vm {
                     // own. The constant stays in its slot.
                     if let Some(slot) = out.as_addr() {
                         if let Some((next, len)) = self.unit.instruction_at(self.ip)? {
+                            // A comparison which reads the constant, such as the
+                            // condition of `while j < 8`, runs here too.
+                            if let inst::Kind::Op { op, a, b, out } = next.kind {
+                                let operands = if b == slot {
+                                    self.stack.at(a).as_inline_signed().map(|a| (a, constant))
+                                } else if a == slot {
+                                    self.stack.at(b).as_inline_signed().map(|b| (constant, b))
+                                } else {
+                                    None
+                                };
+
+                                if let Some((a, b)) = operands {
+                                    if let Some(result) = Self::signed_compare(op, a, b) {
+                                        self.store_inline(out, Inline::Bool(result))?;
+                                        self.ip = self.ip.wrapping_add(len);
+                                    }
+                                }
+                            }
+
                             if let inst::Kind::Arithmetic { op, a, b, out } = next.kind {
                                 let operands = if b == slot {
                                     self.stack.at(a).as_inline_signed().map(|a| (a, constant))
