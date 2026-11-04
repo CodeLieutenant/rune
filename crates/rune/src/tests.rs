@@ -586,6 +586,8 @@ mod vm_general;
 #[cfg(not(miri))]
 mod vm_not_used;
 #[cfg(not(miri))]
+mod vm_pool;
+#[cfg(not(miri))]
 mod vm_result;
 #[cfg(not(miri))]
 mod vm_test_from_value_derive;

@@ -2,6 +2,8 @@ use core::fmt;
 use core::future::Future;
 use core::mem::{replace, take};
 use core::pin::{pin, Pin};
+use core::ptr;
+use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 use core::task::{ready, Context, Poll, RawWaker, RawWakerVTable, Waker};
 
 use crate::alloc::prelude::*;
@@ -940,23 +942,34 @@ pub enum HostStep {
 }
 
 /// A virtual machine which holds no values, so that it can move to another
-/// thread to run its next call.
+/// thread to run its next call: the thread-safe machine.
+///
+/// It is owned by one caller at a time and needs no synchronization. A caller
+/// which runs many calls keeps one per concurrent call, and a goroutine, a task
+/// or a thread of its own can each own one. Callers on many threads which share
+/// one unit use a [`VmPool`] instead.
 ///
 /// The machine lives in a box, so that handing it between a pool, an
 /// execution and back moves a pointer rather than the whole machine.
 ///
-/// Only Rune builds one: from a context and a unit with [`ClearedVm::new`], or
-/// by clearing a machine after a call with [`PooledExecution::complete`]. It is
+/// Only Rune builds one: from a context and a unit with [`VmTs::new`], or by
+/// clearing a machine after a call with [`VmTsExecution::complete`]. It is
 /// [`Send`] for the same reason [`VmSendExecution`] is.
-pub struct ClearedVm(rust_alloc::boxed::Box<Vm>);
+pub struct VmTs(rust_alloc::boxed::Box<Vm>);
 
 // Safety: the machine holds no values, see the type documentation.
-unsafe impl Send for ClearedVm {}
+unsafe impl Send for VmTs {}
 
-impl ClearedVm {
+impl VmTs {
     /// Build a machine with an empty stack.
     pub fn new(context: Arc<RuntimeContext>, unit: Arc<Unit>) -> Self {
         Self(rust_alloc::boxed::Box::new(Vm::new(context, unit)))
+    }
+
+    /// The address of the machine, which tells two machines apart in tests.
+    #[cfg(test)]
+    pub(crate) fn addr(&self) -> usize {
+        &*self.0 as *const Vm as usize
     }
 
     /// Set up a call of a function looked up with [`Vm::lookup_entry`].
@@ -964,33 +977,148 @@ impl ClearedVm {
         mut self,
         entry: &crate::runtime::Entry,
         args: impl Args + Send,
-    ) -> Result<PooledExecution, VmError> {
+    ) -> Result<VmTsExecution, VmError> {
         self.0.prepare_entry(entry, args)?;
-        Ok(PooledExecution(VmExecution::new(self.0)))
+        Ok(VmTsExecution(VmExecution::new(self.0)))
     }
 }
 
-/// An execution on a [`ClearedVm`], which hands the machine back when it ends.
-pub struct PooledExecution(VmExecution<rust_alloc::boxed::Box<Vm>>);
+/// An execution on a [`VmTs`], which hands the machine back when it ends.
+pub struct VmTsExecution(VmExecution<rust_alloc::boxed::Box<Vm>>);
 
 // Safety: we wrap all APIs around the [VmExecution], preventing values from
 // escaping from the contained virtual machine.
-unsafe impl Send for PooledExecution {}
+unsafe impl Send for VmTsExecution {}
 
-impl PooledExecution {
+impl VmTsExecution {
     /// Complete the execution, and hand the machine back cleared, so that it
     /// can run another call.
-    pub fn complete(mut self) -> impl Future<Output = (Result<Value, VmError>, ClearedVm)> + Send {
+    pub fn complete(mut self) -> impl Future<Output = (Result<Value, VmError>, VmTs)> + Send {
         let future = async move {
             let result = self.0.resume().await.and_then(VmOutcome::into_complete);
             let mut vm = self.0.into_vm();
             vm.dismantle_clear();
-            (result, ClearedVm(vm))
+            (result, VmTs(vm))
         };
 
         // Safety: we wrap all APIs around the [VmExecution], preventing values
         // from escaping from the contained virtual machine, and the machine is
         // cleared before it is handed back.
         unsafe { AssertSend::new(future) }
+    }
+}
+
+/// Machines which callers on many threads share, through an [`Arc`].
+///
+/// Taking and returning a machine are wait-free. Each is a scan over a fixed
+/// number of slots with one atomic exchange per slot, and no lock and no retry.
+/// When no slot holds a machine, [`VmPool::take`] builds one. When every slot
+/// holds one, [`VmPool::put`] drops the machine it is given.
+pub struct VmPool {
+    context: Arc<RuntimeContext>,
+    unit: Arc<Unit>,
+    /// Each slot holds a boxed machine with no values, or null.
+    slots: rust_alloc::boxed::Box<[AtomicPtr<Vm>]>,
+    /// Where the last machine was taken or put, so that the next scan starts
+    /// where a machine most likely is.
+    hint: AtomicUsize,
+}
+
+// Safety: every machine in a slot holds no values, for the same reason as
+// `VmTs`, and a slot hands its machine to exactly one caller.
+unsafe impl Send for VmPool {}
+unsafe impl Sync for VmPool {}
+
+impl VmPool {
+    /// Make a pool for the given context and unit, which keeps up to `capacity`
+    /// machines, rounded up to a power of two.
+    pub fn new(context: Arc<RuntimeContext>, unit: Arc<Unit>, capacity: usize) -> Self {
+        let capacity = capacity.max(1).next_power_of_two();
+        Self {
+            context,
+            unit,
+            slots: (0..capacity)
+                .map(|_| AtomicPtr::new(ptr::null_mut()))
+                .collect(),
+            hint: AtomicUsize::new(0),
+        }
+    }
+
+    /// Take a machine, or build one when the pool holds none.
+    pub fn take(&self) -> VmTs {
+        let mask = self.slots.len() - 1;
+        let start = self.hint.load(Ordering::Relaxed);
+
+        for offset in 0..self.slots.len() {
+            let index = (start + offset) & mask;
+            let slot = &self.slots[index];
+
+            // Reading first keeps empty slots from being written to.
+            if slot.load(Ordering::Relaxed).is_null() {
+                continue;
+            }
+
+            let vm = slot.swap(ptr::null_mut(), Ordering::Acquire);
+
+            if !vm.is_null() {
+                self.hint.store(index, Ordering::Relaxed);
+                // Safety: the pointer came from `Box::into_raw` in `put`, and
+                // the swap hands it to this caller only.
+                return VmTs(unsafe { rust_alloc::boxed::Box::from_raw(vm) });
+            }
+        }
+
+        VmTs::new(Arc::clone(&self.context), Arc::clone(&self.unit))
+    }
+
+    /// Return a machine to the pool, or drop it when the pool is full or the
+    /// machine runs a different unit.
+    pub fn put(&self, vm: VmTs) {
+        if !Arc::ptr_eq(vm.0.unit(), &self.unit) || !Arc::ptr_eq(vm.0.context(), &self.context) {
+            return;
+        }
+
+        let vm = rust_alloc::boxed::Box::into_raw(vm.0);
+        let mask = self.slots.len() - 1;
+        let start = self.hint.load(Ordering::Relaxed);
+
+        for offset in 0..self.slots.len() {
+            let index = (start + offset) & mask;
+            let slot = &self.slots[index];
+
+            if !slot.load(Ordering::Relaxed).is_null() {
+                continue;
+            }
+
+            if slot
+                .compare_exchange(ptr::null_mut(), vm, Ordering::Release, Ordering::Relaxed)
+                .is_ok()
+            {
+                self.hint.store(index, Ordering::Relaxed);
+                return;
+            }
+        }
+
+        // Safety: no slot took the pointer, so this is its only owner.
+        drop(unsafe { rust_alloc::boxed::Box::from_raw(vm) });
+    }
+
+    /// The number of slots in the pool.
+    pub fn capacity(&self) -> usize {
+        self.slots.len()
+    }
+}
+
+impl Drop for VmPool {
+    fn drop(&mut self) {
+        for slot in self.slots.iter_mut() {
+            let vm = *slot.get_mut();
+
+            if !vm.is_null() {
+                // Safety: the pool is the only owner of the machines in its
+                // slots.
+                drop(unsafe { rust_alloc::boxed::Box::from_raw(vm) });
+            }
+        }
     }
 }
