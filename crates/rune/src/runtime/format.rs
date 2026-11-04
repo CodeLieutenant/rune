@@ -56,7 +56,7 @@ pub struct Format {
 /// A format specification.
 #[derive(Debug, Clone, Copy, TryClone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[cfg_attr(feature = "musli", derive(Decode, Encode), musli(crate = musli_core))]
+#[cfg_attr(feature = "musli", derive(Decode, Encode), musli(crate = musli_core, packed))]
 #[try_clone(copy)]
 #[non_exhaustive]
 pub struct FormatSpec {
@@ -67,8 +67,10 @@ pub struct FormatSpec {
     /// The alignment specification.
     pub(crate) align: Alignment,
     /// Formatting width.
+    #[cfg_attr(feature = "musli", musli(with = crate::musli::width))]
     pub(crate) width: Option<NonZeroUsize>,
     /// Formatting precision, which may be zero.
+    #[cfg_attr(feature = "musli", musli(with = crate::musli::count))]
     pub(crate) precision: Option<usize>,
     /// The type specification.
     pub(crate) format_type: Type,
