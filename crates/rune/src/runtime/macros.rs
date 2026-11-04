@@ -78,6 +78,13 @@ macro_rules! range_iter {
                 Self { iter }
             }
 
+            /// Advance the iterator without a call through the `NEXT` protocol.
+            #[inline(always)]
+            #[allow(dead_code)]
+            pub(crate) fn raw_next(&mut self) -> Option<$ty> {
+                self.iter.next()
+            }
+
             #[rune::function(instance, keep, protocol = NEXT)]
             #[inline]
             pub(crate) fn next(&mut self) -> Option<$ty> {

@@ -3143,6 +3143,65 @@ impl Vm {
         }
     }
 
+    /// Run one step of a `for` loop over an integer range natively.
+    ///
+    /// A `for` loop calls `next` on its iterator and then runs `IterNext` on
+    /// what the call returned. When the iterator at `addr` is a
+    /// `RangeIter<i64>` and the `IterNext` at `at` reads the output of the
+    /// call, both run here at once: there is no call through the protocol and
+    /// no `Option` to allocate, and the integer goes straight into the loop
+    /// binding.
+    ///
+    /// Returns `false` when the pattern does not match, and the caller then
+    /// runs the call as usual.
+    #[inline(always)]
+    fn fused_range_step(&mut self, addr: Address, out: Output, at: usize) -> Result<bool, VmError> {
+        let Some(out_addr) = out.as_addr() else {
+            return Ok(false);
+        };
+
+        let Repr::Any(iter) = self.stack.at(addr).as_ref() else {
+            return Ok(false);
+        };
+
+        if iter.type_hash() != super::range::RangeIter::<i64>::HASH {
+            return Ok(false);
+        }
+
+        let Some((next, len)) = self.unit.instruction_at(at)? else {
+            return Ok(false);
+        };
+
+        let inst::Kind::IterNext {
+            addr: next_addr,
+            jump,
+            out: next_out,
+        } = next.kind
+        else {
+            return Ok(false);
+        };
+
+        if next_addr != out_addr {
+            return Ok(false);
+        }
+
+        let value = iter
+            .borrow_mut::<super::range::RangeIter<i64>>()?
+            .raw_next();
+
+        match value {
+            Some(value) => {
+                self.store_inline(next_out, Inline::Signed(value))?;
+                self.ip = at.wrapping_add(len);
+            }
+            None => {
+                self.ip = self.unit.translate(jump)?;
+            }
+        }
+
+        Ok(true)
+    }
+
     #[cfg_attr(feature = "bench", inline(never))]
     fn op_iter_next(&mut self, addr: Address, jump: usize, out: Output) -> Result<(), VmError> {
         let value = self.stack.at(addr);
@@ -3285,6 +3344,13 @@ impl Vm {
                     args,
                     out,
                 } => {
+                    if args == 1
+                        && hash == Protocol::NEXT.hash
+                        && self.fused_range_step(addr, out, self.ip)?
+                    {
+                        continue;
+                    }
+
                     self.op_call_associated(hash, addr, args, out)?;
                 }
                 inst::Kind::CallFn {
@@ -3293,6 +3359,10 @@ impl Vm {
                     args,
                     out,
                 } => {
+                    if args == 1 && self.fused_range_step(addr, out, self.ip)? {
+                        continue;
+                    }
+
                     if let Some(reason) = self.op_call_fn(function, addr, args, out)? {
                         return Ok(reason);
                     }
