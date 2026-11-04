@@ -339,7 +339,7 @@ fn cmp(lhs: Value, rhs: Value) -> Result<Ordering, VmError> {
 /// ```
 #[rune::function(keep)]
 fn hash(value: Value) -> Result<u64, VmError> {
-    let state = STATE.get_or_init(RandomState::new);
+    let state = STATE.get_or_init(RandomState::default);
     let mut hasher = Hasher::new_with(state);
 
     Value::hash_with(&value, &mut hasher, &mut EnvProtocolCaller)?;

@@ -25,7 +25,7 @@ impl<V> Table<V> {
     pub(crate) fn new() -> Self {
         Self {
             table: RawTable::new(),
-            state: hash_map::RandomState::new(),
+            state: hash_map::RandomState::default(),
         }
     }
 
@@ -33,7 +33,7 @@ impl<V> Table<V> {
     pub(crate) fn try_with_capacity(capacity: usize) -> alloc::Result<Self> {
         Ok(Self {
             table: RawTable::try_with_capacity(capacity)?,
-            state: hash_map::RandomState::new(),
+            state: hash_map::RandomState::default(),
         })
     }
 

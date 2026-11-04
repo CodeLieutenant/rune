@@ -435,7 +435,7 @@ impl<T> Bucket<T> {
     ///
     /// use rune_alloc::hashbrown::raw::{Bucket, RawTable};
     ///
-    /// type NewHashBuilder = core::hash::BuildHasherDefault<ahash::AHasher>;
+    /// type NewHashBuilder = foldhash::fast::FixedState;
     ///
     /// fn make_hash<K, S>(hash_builder: &S, key: &K) -> u64
     /// where
@@ -600,7 +600,7 @@ impl<T> Bucket<T> {
     ///
     /// use rune_alloc::hashbrown::raw::{Bucket, RawTable};
     ///
-    /// type NewHashBuilder = core::hash::BuildHasherDefault<ahash::AHasher>;
+    /// type NewHashBuilder = foldhash::fast::FixedState;
     ///
     /// fn make_hash<K, S>(hash_builder: &S, key: &K) -> u64
     /// where
@@ -658,7 +658,7 @@ impl<T> Bucket<T> {
     ///
     /// use rune_alloc::hashbrown::raw::{Bucket, RawTable};
     ///
-    /// type NewHashBuilder = core::hash::BuildHasherDefault<ahash::AHasher>;
+    /// type NewHashBuilder = foldhash::fast::FixedState;
     ///
     /// fn make_hash<K, S>(hash_builder: &S, key: &K) -> u64
     /// where
