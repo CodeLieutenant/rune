@@ -252,6 +252,62 @@ where
         }
     }
 
+    /// Run the execution until it completes or waits, without a future.
+    ///
+    /// The caller drives the execution. On [`HostStep::HostOp`] it stores the
+    /// result of the operation with [`VmExecution::store_output`] and calls
+    /// this again. On [`HostStep::Future`] it polls the future, stores its
+    /// output the same way, and calls this again.
+    pub fn resume_host(&mut self) -> Result<HostStep, VmError> {
+        let _guard = env::enter_execution()?;
+
+        loop {
+            let vm = self.vm.as_mut();
+            let result = vm.run(None);
+
+            match VmError::with_vm(result, vm)? {
+                VmHalt::Exited(addr) => {
+                    self.state = ExecutionState::Exited(addr);
+                }
+                VmHalt::Awaited(Awaited::HostOp(op, out)) => {
+                    return Ok(HostStep::HostOp { op, out });
+                }
+                VmHalt::Awaited(Awaited::Future(future, out)) => {
+                    return Ok(HostStep::Future { future, out });
+                }
+                VmHalt::VmCall(vm_call) => {
+                    vm_call.into_execution(self)?;
+                    continue;
+                }
+                VmHalt::Limited => {
+                    return Ok(HostStep::Limited);
+                }
+                VmHalt::Awaited(Awaited::Select(..)) => {
+                    return Err(VmError::new(VmErrorKind::Halted {
+                        halt: VmHaltInfo::Awaited,
+                    }));
+                }
+                VmHalt::Yielded(..) => {
+                    return Err(VmError::new(VmErrorKind::Halted {
+                        halt: VmHaltInfo::Yielded,
+                    }));
+                }
+            }
+
+            if self.states.is_empty() {
+                return Ok(HostStep::Complete(self.end()?));
+            }
+
+            self.pop_state()?;
+        }
+    }
+
+    /// Store the result of an awaited host operation or future.
+    pub fn store_output(&mut self, out: Output, value: Value) -> Result<(), VmError> {
+        self.vm.as_mut().store(out, value)?;
+        Ok(())
+    }
+
     /// End execution and perform debug checks.
     pub(crate) fn end(&mut self) -> Result<Value, VmError> {
         let ExecutionState::Exited(addr) = self.state else {
@@ -799,4 +855,28 @@ where
             })),
         }
     }
+}
+
+/// Why [`VmExecution::resume_host`] returned.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum HostStep {
+    /// The execution completed with this value.
+    Complete(Value),
+    /// The execution waits on an operation for the host.
+    HostOp {
+        /// The operation, from the low 32 bits of its marker hash.
+        op: u64,
+        /// Where the result of the operation goes.
+        out: Output,
+    },
+    /// The execution waits on a future.
+    Future {
+        /// The future to poll.
+        future: crate::runtime::Future,
+        /// Where the output of the future goes.
+        out: Output,
+    },
+    /// The execution ran out of budget.
+    Limited,
 }

@@ -3426,6 +3426,14 @@ impl Vm {
                     }
                 }
                 inst::Kind::Await { addr, out } => {
+                    if let Repr::Inline(Inline::Hash(hash)) = self.stack.at(addr).as_ref() {
+                        let raw = hash.into_inner();
+
+                        if raw >> 32 == super::HOST_OP_TAG {
+                            return Ok(VmHalt::Awaited(Awaited::HostOp(raw & 0xFFFF_FFFF, out)));
+                        }
+                    }
+
                     if let Some(future) = self.op_await(addr, out)? {
                         return Ok(VmHalt::Awaited(Awaited::Future(future, out)));
                     }

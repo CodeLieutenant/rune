@@ -42,6 +42,7 @@ pub(crate) use self::args::{DynArgs, DynArgsUsed, DynGuardedArgs};
 
 mod awaited;
 pub(crate) use self::awaited::Awaited;
+pub use self::awaited::HOST_OP_TAG;
 
 pub mod budget;
 
@@ -216,7 +217,7 @@ pub(crate) use self::vm_error::{VmErrorKind, VmIntegerRepr};
 
 mod vm_execution;
 pub(crate) use self::vm_execution::ExecutionState;
-pub use self::vm_execution::{VmExecution, VmOutcome, VmResume, VmSendExecution};
+pub use self::vm_execution::{HostStep, VmExecution, VmOutcome, VmResume, VmSendExecution};
 
 mod vm_halt;
 pub(crate) use self::vm_halt::{VmHalt, VmHaltInfo};
