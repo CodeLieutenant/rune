@@ -20,7 +20,7 @@ rune = { version = "0.15.0", path = "../rune", features = ["cli", "tracing"] }
 rune-modules = { version = "0.15.0", path = "../rune-modules", features = ["full"] }
 
 [build-dependencies]
-anyhow = "1.0.71"
+anyhow = "1.0.104"
 
 [[bin]]
 name = "rune"

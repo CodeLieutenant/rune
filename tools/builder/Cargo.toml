@@ -5,7 +5,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
-anyhow = "1.0.71"
-regex = { version = "1.8.1", default-features = false, features = ["std", "unicode-perl"] }
-zip = "8.6.0"
-flate2 = { version = "1.0.26", features = ["zlib"], default-features = false }
+anyhow = "1.0.104"
+regex = { version = "1.13.1", default-features = false, features = ["std", "unicode-perl"] }
+zip = "9.3.0"
+flate2 = { version = "1.1.10", features = ["zlib"], default-features = false }

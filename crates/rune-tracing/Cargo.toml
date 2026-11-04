@@ -21,4 +21,4 @@ tracing = []
 [dependencies]
 rune-tracing-macros = { path = "../rune-tracing-macros", version = "=0.15.0", default-features = false }
 
-tracing = { version = "0.1.37", default-features = false, optional = true, features = ["attributes"] }
+tracing = { version = "0.1.44", default-features = false, optional = true, features = ["attributes"] }

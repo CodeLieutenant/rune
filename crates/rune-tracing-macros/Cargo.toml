@@ -14,9 +14,9 @@ keywords = ["language", "scripting", "scripting-language"]
 categories = ["parser-implementations"]
 
 [dependencies]
-syn = { version = "3.0.1", features = ["full"] }
-quote = { version = "1.0.27" }
-proc-macro2 = { version = "1.0.56" }
+syn = { version = "3.0.9", features = ["full"] }
+quote = { version = "1.0.47" }
+proc-macro2 = { version = "1.0.107" }
 
 [lib]
 proc-macro = true

@@ -15,9 +15,9 @@ categories = ["parser-implementations"]
 
 [dependencies]
 rune-core = { version = "=0.15.0", path = "../rune-core", features = ["std"] }
-syn = { version = "3.0.1", features = ["full"] }
-quote = "1.0.27"
-proc-macro2 = "1.0.56"
+syn = { version = "3.0.9", features = ["full"] }
+quote = "1.0.47"
+proc-macro2 = "1.0.107"
 
 [lib]
 proc-macro = true

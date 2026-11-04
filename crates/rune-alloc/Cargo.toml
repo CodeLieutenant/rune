@@ -28,15 +28,15 @@ musli = ["dep:musli-core"]
 rune-alloc-macros = { version = "=0.15.0", path = "../rune-alloc-macros" }
 
 serde = { version = "1.0", default-features = false, features = ["derive"], optional = true }
-musli-core = { version = "0.1.0", default-features = false, optional = true }
-ahash = { version = "0.8.8", default-features = false }
-pin-project = "1.1.0"
+musli-core = { version = "0.2.0", default-features = false, optional = true }
+ahash = { version = "0.8.12", default-features = false }
+pin-project = "1.1.13"
 
 [dev-dependencies]
 rune = { path = "../rune", features = ["alloc"] }
 
-rand = { version = "0.10.2", default-features = false, features = ["thread_rng"] }
-tokio = { version = "1.28.1", default-features = false, features = ["rt", "macros"] }
+rand = { version = "0.10.3", default-features = false, features = ["thread_rng"] }
+tokio = { version = "1.54.1", default-features = false, features = ["rt", "macros"] }
 
 [package.metadata.docs.rs]
 all-features = true

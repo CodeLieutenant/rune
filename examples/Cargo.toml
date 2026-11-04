@@ -12,7 +12,7 @@ default = ["full"]
 rune = { path = "../crates/rune" }
 rune-modules = { path = "../crates/rune-modules" }
 
-tokio = { version = "1.28.1", features = ["macros"] }
-notify = "8.0.0"
-anyhow = "1.0.82"
-pin-project = "1.1.5"
+tokio = { version = "1.54.1", features = ["macros"] }
+notify = "8.2.1"
+anyhow = "1.0.104"
+pin-project = "1.1.13"
