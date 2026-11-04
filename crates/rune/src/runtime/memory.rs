@@ -556,11 +556,15 @@ impl Stack {
             return;
         };
 
-        if let Some(values) = self.stack.get_mut(len..) {
-            work.dismantle_all(values.iter_mut());
-        }
+        let Some(values) = self.stack.get_mut(len..) else {
+            return;
+        };
 
-        self.stack.truncate(len);
+        work.dismantle_all(values.iter_mut());
+
+        // SAFETY: Taking the values apart left every one of them empty, and an
+        // empty value holds nothing which needs to be dropped.
+        unsafe { self.stack.set_len(len) };
     }
 
     /// Open a new call frame at the top of the stack holding the values which
@@ -605,7 +609,10 @@ impl Stack {
     #[inline]
     pub(crate) fn dismantle_clear(&mut self, work: &mut Worklist) {
         work.dismantle_all(self.stack.iter_mut());
-        self.stack.clear();
+
+        // SAFETY: Taking the values apart left every one of them empty, and an
+        // empty value holds nothing which needs to be dropped.
+        unsafe { self.stack.set_len(0) };
         self.top = 0;
     }
 
@@ -751,6 +758,14 @@ impl Stack {
         let old = unsafe {
             let ptr = self.stack.as_mut_ptr();
             let value = (*ptr.add(from).cast_const()).clone();
+
+            // An inline value holds nothing which needs to be dropped, so it
+            // is overwritten without its destructor.
+            if (*ptr.add(to)).is_inline() {
+                ptr.add(to).write(value);
+                return Ok(());
+            }
+
             replace(&mut *ptr.add(to), value)
         };
 

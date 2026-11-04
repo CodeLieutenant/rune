@@ -133,15 +133,29 @@ impl Worklist {
     }
 
     /// Take the value out of `slot`, leaving it empty, and take it apart.
-    #[inline]
+    #[inline(always)]
     pub(crate) fn take(&mut self, slot: &mut Value) {
+        // An inline value has nothing to take apart, so it is emptied in place
+        // without a call to its destructor.
+        if let Repr::Inline(inline) = slot.as_mut() {
+            *inline = Inline::Empty;
+            return;
+        }
+
         self.dismantle(Value::take(slot));
     }
 
     /// Write `value` into `slot`, taking apart the value which was there rather
     /// than leaving it to its destructor.
-    #[inline]
+    #[inline(always)]
     pub(crate) fn replace(&mut self, slot: &mut Value, value: Value) {
+        if matches!(slot.as_ref(), Repr::Inline(..)) {
+            // SAFETY: An inline value holds nothing which needs to be dropped,
+            // so it can be overwritten without its destructor.
+            unsafe { core::ptr::write(slot, value) };
+            return;
+        }
+
         self.dismantle(replace(slot, value));
     }
 
