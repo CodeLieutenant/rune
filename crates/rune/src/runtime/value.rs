@@ -28,7 +28,7 @@ pub use self::dismantle::{Dismantle, Handover};
 use core::any;
 use core::cmp::Ordering;
 use core::fmt;
-use core::mem::replace;
+use core::mem::{replace, ManuallyDrop};
 use core::ptr::NonNull;
 
 use crate::alloc::fmt::TryWrite;
@@ -89,7 +89,9 @@ impl Repr {
 
 /// An entry on the stack.
 pub struct Value {
-    repr: Repr,
+    /// The representation of the value. [`Drop`] for [`Value`] decides how it
+    /// is taken apart, so it is not dropped on its own.
+    repr: ManuallyDrop<Repr>,
 }
 
 impl Value {
@@ -106,7 +108,7 @@ impl Value {
         T: Any,
     {
         Ok(Self {
-            repr: Repr::Any(AnyObj::new(data)?),
+            repr: ManuallyDrop::new(Repr::Any(AnyObj::new(data)?)),
         })
     }
 
@@ -165,7 +167,7 @@ impl Value {
 
         Ok((
             Self {
-                repr: Repr::Any(value),
+                repr: ManuallyDrop::new(Repr::Any(value)),
             },
             guard,
         ))
@@ -233,7 +235,7 @@ impl Value {
 
         Ok((
             Self {
-                repr: Repr::Any(value),
+                repr: ManuallyDrop::new(Repr::Any(value)),
             },
             guard,
         ))
@@ -241,7 +243,7 @@ impl Value {
 
     /// Optionally get the snapshot of the value if available.
     pub(crate) fn snapshot(&self) -> Option<Snapshot> {
-        match &self.repr {
+        match &*self.repr {
             Repr::Dynamic(value) => Some(value.snapshot()),
             Repr::Any(value) => Some(value.snapshot()),
             _ => None,
@@ -287,7 +289,7 @@ impl Value {
     /// # Ok::<_, rune::support::Error>(())
     /// ```
     pub fn is_writable(&self) -> bool {
-        match self.repr {
+        match *self.repr {
             Repr::Inline(Inline::Empty) => false,
             Repr::Inline(..) => true,
             Repr::Dynamic(ref value) => value.is_writable(),
@@ -334,7 +336,7 @@ impl Value {
     /// # Ok::<_, rune::support::Error>(())
     /// ```
     pub fn is_readable(&self) -> bool {
-        match &self.repr {
+        match &*self.repr {
             Repr::Inline(Inline::Empty) => false,
             Repr::Inline(..) => true,
             Repr::Dynamic(ref value) => value.is_readable(),
@@ -350,20 +352,20 @@ impl Value {
     /// [`Globals`]: crate::runtime::Globals
     #[inline]
     pub(crate) fn is_empty(&self) -> bool {
-        matches!(self.repr, Repr::Inline(Inline::Empty))
+        matches!(*self.repr, Repr::Inline(Inline::Empty))
     }
 
     /// Construct a unit value.
     pub(crate) const fn unit() -> Self {
         Self {
-            repr: Repr::Inline(Inline::Unit),
+            repr: ManuallyDrop::new(Repr::Inline(Inline::Unit)),
         }
     }
 
     /// Construct an empty value.
     pub const fn empty() -> Self {
         Self {
-            repr: Repr::Inline(Inline::Empty),
+            repr: ManuallyDrop::new(Repr::Inline(Inline::Empty)),
         }
     }
 
@@ -453,13 +455,13 @@ impl Value {
         match self.as_ref() {
             Repr::Inline(value) => {
                 return Ok(Self {
-                    repr: Repr::Inline(*value),
+                    repr: ManuallyDrop::new(Repr::Inline(*value)),
                 });
             }
             Repr::Dynamic(value) => {
                 // TODO: This type of cloning should be deep, not shallow.
                 return Ok(Self {
-                    repr: Repr::Dynamic(value.clone()),
+                    repr: ManuallyDrop::new(Repr::Dynamic(value.clone())),
                 });
             }
             Repr::Any(..) => {}
@@ -492,7 +494,7 @@ impl Value {
     ) -> Result<(), VmError> {
         let _guard = env::enter_value()?;
 
-        match &self.repr {
+        match &*self.repr {
             Repr::Inline(value) => {
                 write!(f, "{value:?}")?;
             }
@@ -507,7 +509,7 @@ impl Value {
                     CallResultOnly::Ok(value) => {
                         <()>::from_value(value)?;
                     }
-                    CallResultOnly::Unsupported(value) => match &value.repr {
+                    CallResultOnly::Unsupported(value) => match &*value.repr {
                         Repr::Inline(value) => {
                             write!(f, "{value:?}")?;
                         }
@@ -640,12 +642,12 @@ impl Value {
     pub(crate) fn move_(self) -> Result<Self, VmError> {
         match self.take_repr() {
             Repr::Dynamic(value) => Ok(Value {
-                repr: Repr::Dynamic(value.take()?),
+                repr: ManuallyDrop::new(Repr::Dynamic(value.take()?)),
             }),
             Repr::Any(value) => Ok(Value {
-                repr: Repr::Any(value.take()?),
+                repr: ManuallyDrop::new(Repr::Any(value.take()?)),
             }),
-            repr => Ok(Value { repr }),
+            repr => Ok(Value { repr: ManuallyDrop::new(repr) }),
         }
     }
 
@@ -1028,7 +1030,7 @@ impl Value {
     where
         T: Any,
     {
-        match &self.repr {
+        match &*self.repr {
             Repr::Inline(value) => Err(RuntimeError::expected_any::<T>(value.type_info())),
             Repr::Dynamic(value) => Err(RuntimeError::expected_any::<T>(value.type_info())),
             Repr::Any(value) => Ok(value.borrow_ref()?),
@@ -1073,7 +1075,7 @@ impl Value {
     where
         T: Any,
     {
-        match &self.repr {
+        match &*self.repr {
             Repr::Inline(value) => Err(RuntimeError::expected_any::<T>(value.type_info())),
             Repr::Dynamic(value) => Err(RuntimeError::expected_any::<T>(value.type_info())),
             Repr::Any(value) => Ok(value.borrow_mut()?),
@@ -1126,7 +1128,7 @@ impl Value {
     /// *enum*, and not the type hash of the variant itself.
     #[inline(always)]
     pub fn type_hash(&self) -> Hash {
-        match &self.repr {
+        match &*self.repr {
             Repr::Inline(value) => value.type_hash(),
             Repr::Dynamic(value) => value.type_hash(),
             Repr::Any(value) => value.type_hash(),
@@ -1136,7 +1138,7 @@ impl Value {
     /// Get the type information for the current value.
     #[inline(always)]
     pub fn type_info(&self) -> TypeInfo {
-        match &self.repr {
+        match &*self.repr {
             Repr::Inline(value) => value.type_info(),
             Repr::Dynamic(value) => value.type_info(),
             Repr::Any(value) => value.type_info(),
@@ -1439,7 +1441,7 @@ impl Value {
     where
         T: TryFrom<u64> + TryFrom<i64>,
     {
-        match self.repr {
+        match *self.repr {
             Repr::Inline(value) => value.as_integer(),
             Repr::Dynamic(ref value) => Err(RuntimeError::new(VmErrorKind::ExpectedNumber {
                 actual: value.type_info(),
@@ -1451,7 +1453,7 @@ impl Value {
     }
 
     pub(crate) fn as_inline_unchecked(&self) -> Option<&Inline> {
-        match &self.repr {
+        match &*self.repr {
             Repr::Inline(value) => Some(value),
             _ => None,
         }
@@ -1459,7 +1461,7 @@ impl Value {
 
     /// Test if the value is inline.
     pub(crate) fn is_inline(&self) -> bool {
-        matches!(self.repr, Repr::Inline(..))
+        matches!(*self.repr, Repr::Inline(..))
     }
 
     /// Coerce into a checked [`Inline`] object.
@@ -1467,7 +1469,7 @@ impl Value {
     /// Any empty value will cause an access error.
     #[inline]
     pub(crate) fn as_inline(&self) -> Option<&Inline> {
-        match &self.repr {
+        match &*self.repr {
             Repr::Inline(value) => Some(value),
             Repr::Dynamic(..) => None,
             Repr::Any(..) => None,
@@ -1479,7 +1481,7 @@ impl Value {
     /// Any empty value will cause an access error.
     #[inline]
     pub fn as_any(&self) -> Option<&AnyObj> {
-        match &self.repr {
+        match &*self.repr {
             Repr::Inline(..) => None,
             Repr::Dynamic(..) => None,
             Repr::Any(value) => Some(value),
@@ -1488,7 +1490,7 @@ impl Value {
 
     #[inline(always)]
     pub(crate) fn take_repr(mut self) -> Repr {
-        replace(&mut self.repr, Repr::Inline(Inline::Empty))
+        replace(&mut *self.repr, Repr::Inline(Inline::Empty))
     }
 
     #[inline(always)]
@@ -1499,7 +1501,7 @@ impl Value {
     /// Returns the integer when the value is an inline signed integer.
     #[inline(always)]
     pub(crate) fn as_inline_signed(&self) -> Option<i64> {
-        match &self.repr {
+        match &*self.repr {
             Repr::Inline(Inline::Signed(value)) => Some(*value),
             _ => None,
         }
@@ -1515,7 +1517,7 @@ impl Value {
     where
         T: Any,
     {
-        match &self.repr {
+        match &*self.repr {
             Repr::Inline(..) => Ok(None),
             Repr::Dynamic(..) => Ok(None),
             Repr::Any(value) => value.try_borrow_ref(),
@@ -1527,7 +1529,7 @@ impl Value {
     where
         T: Any,
     {
-        match &self.repr {
+        match &*self.repr {
             Repr::Inline(..) => Ok(None),
             Repr::Dynamic(..) => Ok(None),
             Repr::Any(value) => value.try_borrow_mut(),
@@ -1599,7 +1601,7 @@ impl Value {
 
 impl fmt::Debug for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.repr {
+        match &*self.repr {
             Repr::Inline(value) => {
                 write!(f, "{value:?}")?;
             }
@@ -1608,7 +1610,7 @@ impl fmt::Debug for Value {
                 let result = Formatter::format_with(&mut s, |f| self.debug_fmt(f));
 
                 if let Err(e) = result {
-                    match &self.repr {
+                    match &*self.repr {
                         Repr::Inline(value) => {
                             write!(f, "<{value:?}: {e}>")?;
                         }
@@ -1636,7 +1638,9 @@ impl fmt::Debug for Value {
 impl From<Repr> for Value {
     #[inline]
     fn from(repr: Repr) -> Self {
-        Self { repr }
+        Self {
+            repr: ManuallyDrop::new(repr),
+        }
     }
 }
 
@@ -1651,7 +1655,7 @@ impl From<Inline> for Value {
     #[inline]
     fn from(value: Inline) -> Self {
         Self {
-            repr: Repr::Inline(value),
+            repr: ManuallyDrop::new(Repr::Inline(value)),
         }
     }
 }
@@ -1677,7 +1681,7 @@ impl From<AnyObj> for Value {
     #[inline]
     fn from(value: AnyObj) -> Self {
         Self {
-            repr: Repr::Any(value),
+            repr: ManuallyDrop::new(Repr::Any(value)),
         }
     }
 }
@@ -1706,7 +1710,7 @@ where
     #[inline]
     fn from(value: Shared<T>) -> Self {
         Self {
-            repr: Repr::Any(value.into_any_obj()),
+            repr: ManuallyDrop::new(Repr::Any(value.into_any_obj())),
         }
     }
 }
@@ -1715,7 +1719,7 @@ impl From<AnySequence<Arc<Rtti>, Value>> for Value {
     #[inline]
     fn from(value: AnySequence<Arc<Rtti>, Value>) -> Self {
         Self {
-            repr: Repr::Dynamic(value),
+            repr: ManuallyDrop::new(Repr::Dynamic(value)),
         }
     }
 }
@@ -1783,15 +1787,27 @@ impl MaybeTypeOf for Value {
 ///
 /// See the `dismantle` module for how the graph is walked.
 impl Drop for Value {
-    #[inline]
+    #[inline(always)]
     fn drop(&mut self) {
         // Values which cannot contain other values are the common case and are
         // dropped in place.
-        if matches!(self.repr, Repr::Inline(..)) {
+        if matches!(*self.repr, Repr::Inline(..)) {
             return;
         }
 
-        let repr = replace(&mut self.repr, Repr::Inline(Inline::Empty));
+        self.drop_slow();
+    }
+}
+
+impl Value {
+    /// Take apart a value which contains other values.
+    ///
+    /// This is out of line so that dropping an inline value, which is the
+    /// common case, compiles down to the one comparison in [`Drop::drop`].
+    #[cold]
+    #[inline(never)]
+    fn drop_slow(&mut self) {
+        let repr = replace(&mut *self.repr, Repr::Inline(Inline::Empty));
 
         // Few enough values wait without allocating, so an ordinary value costs
         // a destructor nothing beyond the walk itself.
@@ -1802,18 +1818,20 @@ impl Drop for Value {
 impl Clone for Value {
     #[inline]
     fn clone(&self) -> Self {
-        let repr = match &self.repr {
+        let repr = match &*self.repr {
             Repr::Inline(inline) => Repr::Inline(*inline),
             Repr::Dynamic(mutable) => Repr::Dynamic(mutable.clone()),
             Repr::Any(any) => Repr::Any(any.clone()),
         };
 
-        Self { repr }
+        Self {
+            repr: ManuallyDrop::new(repr),
+        }
     }
 
     #[inline]
     fn clone_from(&mut self, source: &Self) {
-        match (&mut self.repr, &source.repr) {
+        match (&mut *self.repr, &*source.repr) {
             (Repr::Inline(lhs), Repr::Inline(rhs)) => {
                 *lhs = *rhs;
             }

@@ -10,7 +10,7 @@ macro_rules! inline_into {
         /// This gets a copy of the value.
         #[inline]
         pub fn $as(&self) -> Result<$ty, RuntimeError> {
-            match &self.repr {
+            match &*self.repr {
                 Repr::Inline(Inline::$kind(value)) => {
                     Ok(*value)
                 }
@@ -31,7 +31,7 @@ macro_rules! inline_into {
         /// This gets the value by mutable reference.
         #[inline]
         pub fn $as_mut(&mut self) -> Result<&mut $ty, RuntimeError> {
-            match &mut self.repr {
+            match &mut *self.repr {
                 Repr::Inline(Inline::$kind(value)) => {
                     Ok(value)
                 }
