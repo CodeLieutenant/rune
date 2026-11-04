@@ -302,7 +302,7 @@ where
 
     /// Get the instruction at the given instruction pointer.
     #[inline]
-    pub(crate) fn instruction_at(
+    pub fn instruction_at(
         &self,
         ip: usize,
     ) -> Result<Option<(Inst, usize)>, BadInstruction> {
