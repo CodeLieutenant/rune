@@ -302,10 +302,7 @@ where
 
     /// Get the instruction at the given instruction pointer.
     #[inline]
-    pub fn instruction_at(
-        &self,
-        ip: usize,
-    ) -> Result<Option<(Inst, usize)>, BadInstruction> {
+    pub fn instruction_at(&self, ip: usize) -> Result<Option<(Inst, usize)>, BadInstruction> {
         self.logic.storage.get(ip)
     }
 
