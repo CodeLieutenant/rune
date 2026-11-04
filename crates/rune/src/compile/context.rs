@@ -286,6 +286,9 @@ pub struct Context {
     /// Unique modules installed in the context.
     unique: HashSet<&'static str>,
     /// Whether or not to include the prelude when constructing a new unit.
+    /// Whether only what a [`RuntimeContext`] needs is kept, see
+    /// [`Context::with_default_modules_for_runtime`].
+    runtime_only: bool,
     has_default_modules: bool,
     /// Registered metadata, in the order that it was registered.
     meta: Vec<ContextMeta>,
@@ -342,8 +345,29 @@ impl Context {
     /// * `::std::io::print`
     /// * `::std::io::println`
     pub fn with_config(#[allow(unused)] stdio: bool) -> Result<Self, ContextError> {
-        let mut this = Self::new();
+        Self::install_defaults(Self::new(), stdio)
+    }
 
+    /// Construct a context with the default modules which keeps only what a
+    /// [`RuntimeContext`] needs: functions, constants, constructors and
+    /// deprecations.
+    ///
+    /// It leaves out the names, items and other metadata which only the
+    /// compiler reads, which is most of the memory of a full context. Use it
+    /// to build a [`RuntimeContext`] for a [`Unit`] that a full context
+    /// compiled. It cannot compile a unit itself.
+    ///
+    /// [`Unit`]: crate::Unit
+    pub fn with_default_modules_for_runtime() -> Result<Self, ContextError> {
+        let mut this = Self::new();
+        this.runtime_only = true;
+        Self::install_defaults(this, true)
+    }
+
+    fn install_defaults(
+        mut this: Self,
+        #[allow(unused)] stdio: bool,
+    ) -> Result<Self, ContextError> {
         // NB: Order is important, since later modules might use types defined
         // in previous modules.
 
@@ -417,6 +441,21 @@ impl Context {
             self.construct.try_clone()?,
             self.deprecations.try_clone()?,
         ))
+    }
+
+    /// Turn the context into the [`RuntimeContext`] that runs what it
+    /// compiled.
+    ///
+    /// Unlike [`Context::runtime`] this moves what the runtime needs out of
+    /// the context instead of cloning it, so the two are never in memory at
+    /// once.
+    pub fn into_runtime(self) -> RuntimeContext {
+        RuntimeContext::new(
+            self.functions,
+            self.constants,
+            self.construct,
+            self.deprecations,
+        )
     }
 
     /// Install the specified module.
@@ -637,6 +676,10 @@ impl Context {
     /// Install the given meta.
     #[tracing::instrument(skip_all)]
     fn install_meta(&mut self, meta: ContextMeta) -> Result<(), ContextError> {
+        if self.runtime_only {
+            return Ok(());
+        }
+
         if let Some(item) = &meta.item {
             tracing::trace!(?item);
 
@@ -670,7 +713,9 @@ impl Context {
 
     /// Install a module, ensuring that its meta is defined.
     fn install_module(&mut self, m: &Module) -> Result<(), ContextError> {
-        self.names.insert(&m.item)?;
+        if !self.runtime_only {
+            self.names.insert(&m.item)?;
+        }
 
         let mut current = Some((m.item.as_ref(), Some(&m.common)));
 
@@ -1047,7 +1092,9 @@ impl Context {
 
     /// Install a function and check for duplicates.
     fn install_item(&mut self, m: &ModuleItem) -> Result<(), ContextError> {
-        self.names.insert(&m.item)?;
+        if !self.runtime_only {
+            self.names.insert(&m.item)?;
+        }
 
         let kind = match &m.kind {
             rune::module::ModuleItemKind::Constant(value) => {

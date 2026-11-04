@@ -30,6 +30,22 @@ pub struct RuntimeContext {
 assert_impl!(RuntimeContext: Send + Sync);
 
 impl RuntimeContext {
+    /// The hashes of the functions and constants it holds, sorted, which tells
+    /// two runtime contexts apart in tests.
+    #[cfg(test)]
+    pub(crate) fn hashes(
+        &self,
+    ) -> (
+        rust_alloc::vec::Vec<crate::Hash>,
+        rust_alloc::vec::Vec<crate::Hash>,
+    ) {
+        let mut functions: rust_alloc::vec::Vec<_> = self.functions.keys().copied().collect();
+        let mut constants: rust_alloc::vec::Vec<_> = self.constants.keys().copied().collect();
+        functions.sort();
+        constants.sort();
+        (functions, constants)
+    }
+
     pub(crate) fn new(
         functions: hash::Map<FunctionHandler>,
         constants: hash::Map<ConstValueBuf>,
