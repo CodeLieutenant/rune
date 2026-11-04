@@ -163,6 +163,40 @@ impl Vm {
         self.stack.store_with(out, o, &mut self.worklist)
     }
 
+    /// Write an inline value into the given output.
+    ///
+    /// A slot which holds an inline value has nothing to take apart, so it is
+    /// overwritten in place. Any other slot goes through [`Vm::store`].
+    #[inline(always)]
+    fn store_inline(&mut self, out: Output, value: Inline) -> Result<(), VmError> {
+        let Some(addr) = out.as_addr() else {
+            return Ok(());
+        };
+
+        if let Ok(slot) = self.stack.at_mut(addr) {
+            if let Repr::Inline(inline) = slot.as_mut() {
+                *inline = value;
+                return Ok(());
+            }
+        }
+
+        self.store(out, value)?;
+        Ok(())
+    }
+
+    /// The result of an arithmetic operation on two signed integers, or `None`
+    /// when it overflows or divides by zero.
+    #[inline(always)]
+    fn signed_arithmetic(op: InstArithmeticOp, lhs: i64, rhs: i64) -> Option<i64> {
+        match op {
+            InstArithmeticOp::Add => lhs.checked_add(rhs),
+            InstArithmeticOp::Sub => lhs.checked_sub(rhs),
+            InstArithmeticOp::Mul => lhs.checked_mul(rhs),
+            InstArithmeticOp::Div => lhs.checked_div(rhs),
+            InstArithmeticOp::Rem => lhs.checked_rem(rhs),
+        }
+    }
+
     /// How much the machine's worklist has grown, which it keeps rather than
     /// growing one for every value it takes apart.
     #[cfg(test)]
@@ -1582,6 +1616,26 @@ impl Vm {
         rhs: Address,
         out: Output,
     ) -> Result<(), VmError> {
+        // Two signed integers: compare directly.
+        if let (Some(a), Some(b)) = (
+            self.stack.at(lhs).as_inline_signed(),
+            self.stack.at(rhs).as_inline_signed(),
+        ) {
+            let result = match op {
+                InstOp::Lt => Some(a < b),
+                InstOp::Le => Some(a <= b),
+                InstOp::Gt => Some(a > b),
+                InstOp::Ge => Some(a >= b),
+                InstOp::Eq => Some(a == b),
+                InstOp::Neq => Some(a != b),
+                _ => None,
+            };
+
+            if let Some(result) = result {
+                return self.store_inline(out, Inline::Bool(result));
+            }
+        }
+
         match op {
             InstOp::Lt => {
                 self.internal_cmp(|o| matches!(o, Ordering::Less), lhs, rhs, out)?;
@@ -1664,6 +1718,18 @@ impl Vm {
         rhs: Address,
         out: Output,
     ) -> Result<(), VmError> {
+        // Two signed integers: compute directly, without the function pointers
+        // of the general path. An overflow takes the general path, which
+        // raises the error.
+        if let (Some(a), Some(b)) = (
+            self.stack.at(lhs).as_inline_signed(),
+            self.stack.at(rhs).as_inline_signed(),
+        ) {
+            if let Some(value) = Self::signed_arithmetic(op, a, b) {
+                return self.store_inline(out, Inline::Signed(value));
+            }
+        }
+
         let ops = ArithmeticOps::from_op(op);
 
         let lhs = self.stack.at(lhs);

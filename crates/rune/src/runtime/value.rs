@@ -1496,6 +1496,15 @@ impl Value {
         &self.repr
     }
 
+    /// Returns the integer when the value is an inline signed integer.
+    #[inline(always)]
+    pub(crate) fn as_inline_signed(&self) -> Option<i64> {
+        match &self.repr {
+            Repr::Inline(Inline::Signed(value)) => Some(*value),
+            _ => None,
+        }
+    }
+
     #[inline(always)]
     pub(crate) fn as_mut(&mut self) -> &mut Repr {
         &mut self.repr
