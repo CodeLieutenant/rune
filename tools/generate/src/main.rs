@@ -443,7 +443,7 @@ fn buf_match(punct: &str) -> impl FormatInto<Rust> + '_ {
         let extra = 3usize
             .checked_sub(len)
             .expect("a punctuation should not be longer than 3");
-        let it = chars.into_iter().chain(std::iter::repeat('\0').take(extra));
+        let it = chars.into_iter().chain(std::iter::repeat_n('\0', extra));
 
         quote_in!(tokens => [$(for c in it join (, ) => $(format!("{:?}", c)))])
     })
