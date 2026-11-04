@@ -3190,6 +3190,83 @@ impl Vm {
         }
     }
 
+    /// Build the iterator of a `for` loop over an integer range directly.
+    ///
+    /// A `for` loop over `start..end` builds a `Range`, copies it, and calls
+    /// `into_iter` on the copy. When both ends are integers, this stores the
+    /// `Range` as usual, since the slot can be a variable which is read after
+    /// the loop, and builds the `RangeIter<i64>` which `into_iter` would return
+    /// straight into the output of the call. That saves the copy and the call
+    /// through the protocol.
+    ///
+    /// Returns `false` when the pattern does not match, and the caller then
+    /// builds the range as usual.
+    #[inline(always)]
+    fn fused_range_into_iter(&mut self, range: InstRange, out: Output) -> Result<bool, VmError> {
+        let InstRange::Range { start, end } = range else {
+            return Ok(false);
+        };
+
+        let (Some(start), Some(end)) = (
+            self.stack.at(start).as_inline_signed(),
+            self.stack.at(end).as_inline_signed(),
+        ) else {
+            return Ok(false);
+        };
+
+        let Some(range_slot) = out.as_addr() else {
+            return Ok(false);
+        };
+
+        let Some((copy, copy_len)) = self.unit.instruction_at(self.ip)? else {
+            return Ok(false);
+        };
+
+        let inst::Kind::Copy {
+            addr,
+            out: copy_out,
+        } = copy.kind
+        else {
+            return Ok(false);
+        };
+
+        let Some(copy_slot) = copy_out.as_addr() else {
+            return Ok(false);
+        };
+
+        if addr != range_slot {
+            return Ok(false);
+        }
+
+        let at = self.ip.wrapping_add(copy_len);
+
+        let Some((call, call_len)) = self.unit.instruction_at(at)? else {
+            return Ok(false);
+        };
+
+        let inst::Kind::CallAssociated {
+            hash,
+            addr,
+            args: 1,
+            out: iter_out,
+        } = call.kind
+        else {
+            return Ok(false);
+        };
+
+        if hash != Protocol::INTO_ITER.hash || addr != copy_slot {
+            return Ok(false);
+        }
+
+        let range = Value::new(Range::new(Value::from(start), Value::from(end)))?;
+        self.store(out, range)?;
+
+        let iter = Value::new(super::range::RangeIter::new(start..end))?;
+        self.store(iter_out, iter)?;
+        self.ip = at.wrapping_add(call_len);
+        Ok(true)
+    }
+
     /// Run one step of a `for` loop over an integer range natively.
     ///
     /// A `for` loop calls `next` on its iterator and then runs `IterNext` on
@@ -3591,6 +3668,10 @@ impl Vm {
                     self.op_object(addr, slot, out)?;
                 }
                 inst::Kind::Range { range, out } => {
+                    if self.fused_range_into_iter(range, out)? {
+                        continue;
+                    }
+
                     self.op_range(range, out)?;
                 }
                 inst::Kind::Struct { addr, hash, out } => {
