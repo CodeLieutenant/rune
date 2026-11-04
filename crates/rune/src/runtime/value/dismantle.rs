@@ -1,7 +1,7 @@
 //! Taking a graph of values apart without recursing into it.
 
 use core::fmt;
-use core::mem::replace;
+use core::mem::{replace, ManuallyDrop};
 
 use crate::runtime::{Inline, RawAnyGuard, Value};
 
@@ -79,11 +79,27 @@ mod counters {
 pub(crate) struct Worklist {
     /// The values which are waiting, for as long as there are few enough of
     /// them to keep without allocating.
-    inline: [Repr; INLINE],
+    ///
+    /// Only the first `len` are in use, and every other one holds an empty
+    /// inline value, so [`Drop`] only has to look at those which are in use.
+    inline: [ManuallyDrop<Repr>; INLINE],
     /// How many of `inline` are in use.
     len: usize,
     /// Where the values which do not fit are kept.
     spilled: rust_alloc::vec::Vec<Repr>,
+}
+
+impl Drop for Worklist {
+    #[inline]
+    fn drop(&mut self) {
+        // A walk which completes leaves nothing waiting, so this only drops
+        // anything when a walk was cut short.
+        for slot in &mut self.inline[..self.len] {
+            // SAFETY: The slots before `len` are in use and are dropped once,
+            // here.
+            unsafe { ManuallyDrop::drop(slot) };
+        }
+    }
 }
 
 impl fmt::Debug for Worklist {
@@ -100,7 +116,7 @@ impl Worklist {
     /// more values at once than it can keep.
     pub(crate) const fn new() -> Self {
         Self {
-            inline: [const { Repr::Inline(Inline::Empty) }; INLINE],
+            inline: [const { ManuallyDrop::new(Repr::Inline(Inline::Empty)) }; INLINE],
             len: 0,
             spilled: rust_alloc::vec::Vec::new(),
         }
@@ -195,7 +211,8 @@ impl Worklist {
     /// Leave a value waiting until it is taken apart.
     fn push(&mut self, repr: Repr) {
         if self.len < INLINE {
-            self.inline[self.len] = repr;
+            // The slot holds an empty inline value, which has nothing to drop.
+            self.inline[self.len] = ManuallyDrop::new(repr);
             self.len += 1;
             return;
         }
@@ -215,7 +232,10 @@ impl Worklist {
 
         let len = self.len.checked_sub(1)?;
         self.len = len;
-        Some(replace(&mut self.inline[len], Repr::Inline(Inline::Empty)))
+        Some(ManuallyDrop::into_inner(replace(
+            &mut self.inline[len],
+            ManuallyDrop::new(Repr::Inline(Inline::Empty)),
+        )))
     }
 }
 
