@@ -198,7 +198,7 @@ pub use self::vec_tuple::VecTuple;
 
 mod vm;
 use self::vm::CallResultOnly;
-pub use self::vm::{CallFrame, Isolated, Vm};
+pub use self::vm::{CallFrame, Entry, Isolated, Vm};
 
 mod vm_call;
 pub(crate) use self::vm_call::VmCall;

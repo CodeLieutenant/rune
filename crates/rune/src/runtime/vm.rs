@@ -440,11 +440,77 @@ impl Vm {
     /// call, and take it back with [`VmExecution::into_vm`] to reuse it, along
     /// with the capacity of its stack.
     pub fn prepare_call(&mut self, name: impl ToTypeHash, args: impl Args) -> Result<(), VmError> {
-        self.ip = 0;
-        self.dismantle_clear();
-        self.call_frames.clear();
         self.set_entrypoint(name, args.count())?;
         args.into_stack(&mut self.stack)?;
+        Ok(())
+    }
+
+    /// Look up the function identified by `name` once, so that calls to it
+    /// through [`Vm::call_entry`] and [`Vm::prepare_entry`] skip the lookup.
+    ///
+    /// The entry belongs to the unit of this machine, and a machine with a
+    /// different unit refuses it.
+    pub fn lookup_entry(&self, name: impl ToTypeHash) -> Result<Entry, VmError> {
+        let hash = name.to_type_hash();
+
+        let Some(info) = self.unit.function(&hash) else {
+            return Err(VmError::new(match name.to_item()? {
+                Some(item) => VmErrorKind::MissingEntry { hash, item },
+                None => VmErrorKind::MissingEntryHash { hash },
+            }));
+        };
+
+        let UnitFn::Offset { offset, args, .. } = info else {
+            return Err(VmError::new(VmErrorKind::MissingFunction { hash }));
+        };
+
+        Ok(Entry {
+            hash,
+            offset: *offset,
+            args: *args,
+            unit: Arc::as_ptr(&self.unit).addr(),
+        })
+    }
+
+    /// Like [`Vm::prepare_call`], for a function looked up with
+    /// [`Vm::lookup_entry`].
+    pub fn prepare_entry(&mut self, entry: &Entry, args: impl Args) -> Result<(), VmError> {
+        self.enter(entry, args.count())?;
+        args.into_stack(&mut self.stack)?;
+        Ok(())
+    }
+
+    /// Like [`Vm::call`], for a function looked up with [`Vm::lookup_entry`].
+    pub fn call_entry(&mut self, entry: &Entry, args: impl GuardedArgs) -> Result<Value, VmError> {
+        self.enter(entry, args.count())?;
+
+        // Safety: We hold onto the guard until the vm has completed and
+        // `VmExecution` will clear the stack before this function returns.
+        // Erronously or not.
+        let guard = unsafe { args.guarded_into_stack(&mut self.stack)? };
+
+        let value = {
+            // Clearing the stack here on panics has safety implications - see
+            // above.
+            let vm = ClearStack(self);
+            VmExecution::new(&mut *vm.0).complete()?
+        };
+
+        drop(guard);
+        Ok(value)
+    }
+
+    /// Set the machine up to run `entry` with `count` arguments.
+    #[inline]
+    fn enter(&mut self, entry: &Entry, count: usize) -> Result<(), VmErrorKind> {
+        if entry.unit != Arc::as_ptr(&self.unit).addr() {
+            return Err(VmErrorKind::MissingFunction { hash: entry.hash });
+        }
+
+        check_args(count, entry.args)?;
+        self.ip = entry.offset;
+        self.dismantle_clear();
+        self.call_frames.clear();
         Ok(())
     }
 
@@ -3854,9 +3920,21 @@ impl TryClone for CallFrame {
 struct ClearStack<'a>(&'a mut Vm);
 
 impl Drop for ClearStack<'_> {
+    #[inline]
     fn drop(&mut self) {
-        self.0.stack.clear();
+        self.0.dismantle_clear();
     }
+}
+
+/// A function of a unit, looked up once with [`Vm::lookup_entry`].
+#[derive(Debug, Clone, Copy)]
+pub struct Entry {
+    hash: Hash,
+    offset: usize,
+    args: usize,
+    /// The address of the unit the entry belongs to, to tell it apart from
+    /// another unit.
+    unit: usize,
 }
 
 /// Check that arguments matches expected or raise the appropriate error.
