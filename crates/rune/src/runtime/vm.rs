@@ -771,7 +771,7 @@ impl Vm {
         Ok(CallResult::Unsupported(target))
     }
 
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn internal_cmp(
         &mut self,
         match_ordering: fn(Ordering) -> bool,
@@ -1262,7 +1262,7 @@ impl Vm {
     }
 
     /// Helper function to call the function at the given offset.
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn call_offset_fn(
         &mut self,
         offset: usize,
@@ -1295,7 +1295,7 @@ impl Vm {
     }
 
     /// Execute a fallback operation.
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn target_fallback_assign(
         &mut self,
         fallback: TargetFallback,
@@ -1361,7 +1361,7 @@ impl Vm {
     /// Returns `None` if the future was an async call which had yet to run, in
     /// which case it has been spliced into this machine as a call frame and
     /// there is nothing to suspend on - see [`Vm::splice_call`].
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_await(&mut self, addr: Address, out: Output) -> Result<Option<Future>, VmError> {
         let mut future = self.stack.at(addr).clone().into_future()?;
 
@@ -1383,7 +1383,7 @@ impl Vm {
         Ok(None)
     }
 
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_select(
         &mut self,
         addr: Address,
@@ -1410,6 +1410,7 @@ impl Vm {
     }
 
     #[cfg_attr(feature = "bench", inline(never))]
+    #[cfg_attr(not(feature = "bench"), inline)]
     fn op_store(&mut self, value: InstValue, out: Output) -> Result<(), VmError> {
         self.store(out, value.into_value())?;
         Ok(())
@@ -1418,6 +1419,7 @@ impl Vm {
     /// Copy a value from a position relative to the top of the stack, to the
     /// top of the stack.
     #[cfg_attr(feature = "bench", inline(never))]
+    #[cfg_attr(not(feature = "bench"), inline)]
     fn op_copy(&mut self, addr: Address, out: Output) -> Result<(), VmError> {
         self.stack.copy(addr, out, &mut self.worklist)?;
         Ok(())
@@ -1426,6 +1428,7 @@ impl Vm {
     /// Move a value from a position relative to the top of the stack, to the
     /// top of the stack.
     #[cfg_attr(feature = "bench", inline(never))]
+    #[cfg_attr(not(feature = "bench"), inline)]
     fn op_move(&mut self, addr: Address, out: Output) -> Result<(), VmError> {
         let value = self.stack.at(addr).clone();
         let value = value.move_()?;
@@ -1434,6 +1437,7 @@ impl Vm {
     }
 
     #[cfg_attr(feature = "bench", inline(never))]
+    #[cfg_attr(not(feature = "bench"), inline)]
     fn op_drop(&mut self, set: usize) -> Result<(), VmError> {
         let Some(addresses) = self.unit.lookup_drop_set(set) else {
             return Err(VmError::new(VmErrorKind::MissingDropSet { set }));
@@ -1450,7 +1454,7 @@ impl Vm {
     }
 
     /// Swap two values on the stack.
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_swap(&mut self, a: Address, b: Address) -> Result<(), VmError> {
         self.stack.swap(a, b)?;
         Ok(())
@@ -1458,6 +1462,7 @@ impl Vm {
 
     /// Perform a jump operation.
     #[cfg_attr(feature = "bench", inline(never))]
+    #[cfg_attr(not(feature = "bench"), inline)]
     fn op_jump(&mut self, jump: usize) -> Result<(), VmError> {
         self.ip = self.unit.translate(jump)?;
         Ok(())
@@ -1479,6 +1484,7 @@ impl Vm {
 
     /// pop-and-jump-if-not instruction.
     #[cfg_attr(feature = "bench", inline(never))]
+    #[cfg_attr(not(feature = "bench"), inline)]
     fn op_jump_if_not(&mut self, cond: Address, jump: usize) -> Result<(), VmErrorKind> {
         if matches!(
             self.stack.at(cond).as_ref(),
@@ -1491,7 +1497,7 @@ impl Vm {
     }
 
     /// Construct a new vec.
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_vec(&mut self, addr: Address, count: usize, out: Output) -> Result<(), VmError> {
         let vec = self.stack.slice_at_mut(addr, count)?;
         let vec = vec
@@ -1503,7 +1509,7 @@ impl Vm {
     }
 
     /// Construct a new tuple.
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_tuple(&mut self, addr: Address, count: usize, out: Output) -> Result<(), VmError> {
         let tuple = self.stack.slice_at_mut(addr, count)?;
 
@@ -1517,7 +1523,7 @@ impl Vm {
     }
 
     /// Construct a new tuple with a fixed number of arguments.
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_tuple_n(&mut self, addr: &[Address], out: Output) -> Result<(), VmError> {
         let mut tuple = alloc::Vec::<Value>::try_with_capacity(addr.len())?;
 
@@ -1531,7 +1537,7 @@ impl Vm {
     }
 
     /// Push the tuple that is on top of the stack.
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_environment(&mut self, addr: Address, count: usize, out: Output) -> Result<(), VmError> {
         let tuple = self.stack.at(addr).clone();
         let tuple = tuple.borrow_tuple_ref()?;
@@ -1554,13 +1560,13 @@ impl Vm {
         Ok(())
     }
 
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_allocate(&mut self, size: usize) -> Result<(), VmError> {
         self.stack.resize(size)?;
         Ok(())
     }
 
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_not(&mut self, addr: Address, out: Output) -> Result<(), VmError> {
         self.unary(addr, out, &Protocol::NOT, |inline| match *inline {
             Inline::Bool(value) => Ok(Some(Inline::Bool(!value))),
@@ -1570,7 +1576,7 @@ impl Vm {
         })
     }
 
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_neg(&mut self, addr: Address, out: Output) -> Result<(), VmError> {
         self.unary(addr, out, &Protocol::NEG, |inline| match *inline {
             Inline::Signed(value) => {
@@ -1623,7 +1629,7 @@ impl Vm {
         Ok(())
     }
 
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(always)]
     fn op_op(
         &mut self,
         op: InstOp,
@@ -1651,6 +1657,19 @@ impl Vm {
             }
         }
 
+        self.op_op_general(op, lhs, rhs, out)
+    }
+
+    /// The operation for any operands, out of line so that the dispatch
+    /// loop stays small.
+    #[inline(never)]
+    fn op_op_general(
+        &mut self,
+        op: InstOp,
+        lhs: Address,
+        rhs: Address,
+        out: Output,
+    ) -> Result<(), VmError> {
         match op {
             InstOp::Lt => {
                 self.internal_cmp(|o| matches!(o, Ordering::Less), lhs, rhs, out)?;
@@ -1725,7 +1744,7 @@ impl Vm {
         Ok(())
     }
 
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(always)]
     fn op_arithmetic(
         &mut self,
         op: InstArithmeticOp,
@@ -1745,6 +1764,19 @@ impl Vm {
             }
         }
 
+        self.op_arithmetic_general(op, lhs, rhs, out)
+    }
+
+    /// The arithmetic operation for any operands, out of line so that the
+    /// dispatch loop stays small.
+    #[inline(never)]
+    fn op_arithmetic_general(
+        &mut self,
+        op: InstArithmeticOp,
+        lhs: Address,
+        rhs: Address,
+        out: Output,
+    ) -> Result<(), VmError> {
         let ops = ArithmeticOps::from_op(op);
 
         let lhs = self.stack.at(lhs);
@@ -1811,7 +1843,7 @@ impl Vm {
         Ok(())
     }
 
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_bitwise(
         &mut self,
         op: InstBitwiseOp,
@@ -1874,7 +1906,7 @@ impl Vm {
         Ok(())
     }
 
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_shift(
         &mut self,
         op: InstShiftOp,
@@ -1951,7 +1983,7 @@ impl Vm {
         Ok(())
     }
 
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_assign_arithmetic(
         &mut self,
         op: InstArithmeticOp,
@@ -2021,7 +2053,7 @@ impl Vm {
         self.target_fallback_assign(fallback, &ops.protocol)
     }
 
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_assign_bitwise(
         &mut self,
         op: InstBitwiseOp,
@@ -2086,7 +2118,7 @@ impl Vm {
         self.target_fallback_assign(fallback, &ops.protocol)
     }
 
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_assign_shift(
         &mut self,
         op: InstShiftOp,
@@ -2147,7 +2179,7 @@ impl Vm {
     }
 
     /// Perform an index set operation.
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_index_set(
         &mut self,
         target: Address,
@@ -2244,13 +2276,13 @@ impl Vm {
         Ok(f)
     }
 
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_return(&mut self, addr: Address) -> Result<Option<Output>, VmError> {
         let return_value = self.stack.at(addr).clone();
         self.op_return_internal(return_value)
     }
 
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     #[tracing::instrument(skip(self))]
     fn op_return_unit(&mut self) -> Result<Option<Output>, VmError> {
         let (exit, out) = self.pop_call_frame()?;
@@ -2267,7 +2299,7 @@ impl Vm {
         Ok(exit.then_some(out))
     }
 
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_load_instance_fn(
         &mut self,
         addr: Address,
@@ -2282,7 +2314,7 @@ impl Vm {
     }
 
     /// Perform an index get operation.
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_index_get(
         &mut self,
         target: Address,
@@ -2335,7 +2367,7 @@ impl Vm {
     }
 
     /// Perform an index get operation specialized for tuples.
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_tuple_index_set(
         &mut self,
         target: Address,
@@ -2355,7 +2387,7 @@ impl Vm {
     }
 
     /// Perform an index get operation specialized for tuples.
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_tuple_index_get_at(
         &mut self,
         addr: Address,
@@ -2384,7 +2416,7 @@ impl Vm {
     }
 
     /// Perform a specialized index set operation on an object.
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_object_index_set(
         &mut self,
         target: Address,
@@ -2427,7 +2459,7 @@ impl Vm {
     }
 
     /// Perform a specialized index get operation on an object.
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_object_index_get_at(
         &mut self,
         addr: Address,
@@ -2489,7 +2521,7 @@ impl Vm {
     }
 
     /// Operation to allocate an object.
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_object(&mut self, addr: Address, slot: usize, out: Output) -> Result<(), VmError> {
         let Some(keys) = self.unit.lookup_object_keys(slot) else {
             return Err(VmError::new(VmErrorKind::MissingStaticObjectKeys { slot }));
@@ -2508,7 +2540,7 @@ impl Vm {
     }
 
     /// Operation to allocate an object.
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_range(&mut self, range: InstRange, out: Output) -> Result<(), VmError> {
         let value = match range {
             InstRange::RangeFrom { start } => {
@@ -2541,7 +2573,7 @@ impl Vm {
     }
 
     /// Operation to allocate an object struct.
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_struct(&mut self, addr: Address, hash: Hash, out: Output) -> Result<(), VmError> {
         let Some(rtti) = self.unit.lookup_rtti(&hash) else {
             return Err(VmError::new(VmErrorKind::MissingRtti { hash }));
@@ -2554,7 +2586,7 @@ impl Vm {
     }
 
     /// Operation to allocate a constant value from an array of values.
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_const_construct(
         &mut self,
         addr: Address,
@@ -2575,7 +2607,7 @@ impl Vm {
         Ok(())
     }
 
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_string(&mut self, slot: usize, out: Output) -> Result<(), VmError> {
         let Some(string) = self.unit.lookup_string(slot) else {
             return Err(VmError::new(VmErrorKind::MissingStaticString { slot }));
@@ -2595,7 +2627,7 @@ impl Vm {
         debug.global(slot)?.path.try_clone().ok()
     }
 
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_global_get(&mut self, slot: usize, out: Output) -> Result<(), VmError> {
         let value = match self.globals.try_get_at(slot) {
             Ok(Some(value)) => value,
@@ -2633,7 +2665,7 @@ impl Vm {
         Ok(())
     }
 
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_global_set(&mut self, slot: usize, value: Address) -> Result<(), VmError> {
         let value = self.stack.at(value).clone();
 
@@ -2650,7 +2682,7 @@ impl Vm {
         Ok(())
     }
 
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_bytes(&mut self, slot: usize, out: Output) -> Result<(), VmError> {
         let Some(bytes) = self.unit.lookup_bytes(slot) else {
             return Err(VmError::new(VmErrorKind::MissingStaticBytes { slot }));
@@ -2662,7 +2694,7 @@ impl Vm {
     }
 
     /// Optimize operation to perform string concatenation.
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_string_concat(
         &mut self,
         addr: Address,
@@ -2690,7 +2722,7 @@ impl Vm {
     }
 
     /// Push a format specification onto the stack.
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_format(&mut self, addr: Address, spec: FormatSpec, out: Output) -> Result<(), VmError> {
         let value = self.stack.at(addr).clone();
         self.store(out, || Format { value, spec })?;
@@ -2698,7 +2730,7 @@ impl Vm {
     }
 
     /// Perform the try operation on the given stack location.
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_try(&mut self, addr: Address, out: Output) -> Result<Option<Output>, VmError> {
         let result = 'out: {
             let value = {
@@ -2740,7 +2772,7 @@ impl Vm {
         }
     }
 
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_eq_character(&mut self, addr: Address, value: char, out: Output) -> Result<(), VmError> {
         let v = self.stack.at(addr);
 
@@ -2753,7 +2785,7 @@ impl Vm {
         Ok(())
     }
 
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_eq_unsigned(&mut self, addr: Address, value: u64, out: Output) -> Result<(), VmError> {
         let v = self.stack.at(addr);
 
@@ -2766,7 +2798,7 @@ impl Vm {
         Ok(())
     }
 
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_eq_signed(&mut self, addr: Address, value: i64, out: Output) -> Result<(), VmError> {
         let is_match = match self.stack.at(addr).as_inline() {
             Some(Inline::Signed(actual)) => *actual == value,
@@ -2777,7 +2809,7 @@ impl Vm {
         Ok(())
     }
 
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_eq_bool(&mut self, addr: Address, value: bool, out: Output) -> Result<(), VmError> {
         let v = self.stack.at(addr);
 
@@ -2792,7 +2824,7 @@ impl Vm {
 
     /// Test if the top of stack is equal to the string at the given static
     /// string slot.
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_eq_string(&mut self, addr: Address, slot: usize, out: Output) -> Result<(), VmError> {
         let v = self.stack.at(addr);
 
@@ -2814,7 +2846,7 @@ impl Vm {
 
     /// Test if the top of stack is equal to the string at the given static
     /// bytes slot.
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_eq_bytes(&mut self, addr: Address, slot: usize, out: Output) -> Result<(), VmError> {
         let v = self.stack.at(addr);
 
@@ -2834,7 +2866,7 @@ impl Vm {
         Ok(())
     }
 
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_match_type(
         &mut self,
         hash: Hash,
@@ -2893,7 +2925,7 @@ impl Vm {
         Ok(())
     }
 
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_match_sequence(
         &mut self,
         hash: Hash,
@@ -2928,7 +2960,7 @@ impl Vm {
         Ok(())
     }
 
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_match_object(
         &mut self,
         slot: usize,
@@ -2963,7 +2995,7 @@ impl Vm {
     }
 
     /// Load a function as a value onto the stack.
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_load_fn(&mut self, hash: Hash, out: Output) -> Result<(), VmError> {
         let function = self.lookup_function_by_hash(hash)?;
         self.store(out, function)?;
@@ -2971,7 +3003,7 @@ impl Vm {
     }
 
     /// Construct a closure on the top of the stack.
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_closure(
         &mut self,
         hash: Hash,
@@ -3019,7 +3051,7 @@ impl Vm {
     }
 
     /// Implementation of a function call.
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_call(
         &mut self,
         hash: Hash,
@@ -3081,7 +3113,7 @@ impl Vm {
     }
 
     /// Call a function at the given offset with the given number of arguments.
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_call_offset(
         &mut self,
         offset: usize,
@@ -3094,7 +3126,7 @@ impl Vm {
         Ok(())
     }
 
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_call_associated(
         &mut self,
         hash: Hash,
@@ -3131,7 +3163,7 @@ impl Vm {
         }))
     }
 
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     #[tracing::instrument(skip(self))]
     fn op_call_fn(
         &mut self,
@@ -3217,7 +3249,7 @@ impl Vm {
         Ok(true)
     }
 
-    #[cfg_attr(feature = "bench", inline(never))]
+    #[inline(never)]
     fn op_iter_next(&mut self, addr: Address, jump: usize, out: Output) -> Result<(), VmError> {
         let value = self.stack.at(addr);
 
