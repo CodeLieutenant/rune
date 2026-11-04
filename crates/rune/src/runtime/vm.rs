@@ -117,7 +117,7 @@ pub struct Vm {
     /// The machine keeps this for as long as it lives, so that the memory it
     /// grows to hold what it is handed is grown once rather than for every
     /// value it takes apart - see [`Work::dismantle`].
-    worklist: Worklist,
+    worklist: Worklist<0>,
 }
 
 impl Vm {
@@ -149,7 +149,7 @@ impl Vm {
             stack,
             call_frames: alloc::Vec::new(),
             globals: Globals::empty(),
-            worklist: Worklist::new(),
+            worklist: Worklist::empty(),
         }
     }
 
@@ -1064,11 +1064,11 @@ impl Vm {
     }
 
     /// Implementation of getting a string index on an object-like type.
-    fn try_tuple_like_index_set(
+    fn try_tuple_like_index_set<const N: usize>(
         target: &Value,
         index: usize,
         from: &Value,
-        worklist: &mut Worklist,
+        worklist: &mut Worklist<N>,
     ) -> Result<bool, VmError> {
         match target.as_ref() {
             Repr::Inline(target) => match target {
@@ -1133,11 +1133,11 @@ impl Vm {
         }
     }
 
-    fn try_object_slot_index_set(
+    fn try_object_slot_index_set<const N: usize>(
         target: &Value,
         field: &str,
         value: &Value,
-        worklist: &mut Worklist,
+        worklist: &mut Worklist<N>,
     ) -> Result<bool, VmErrorKind> {
         match target.as_ref() {
             Repr::Dynamic(data) if matches!(data.rtti().kind, RttiKind::Struct) => {
@@ -3893,7 +3893,7 @@ impl TryClone for Vm {
             globals: self.globals.clone(),
             // What is waiting to be taken apart belongs to the machine which
             // was taking it apart, not to a copy of it.
-            worklist: Worklist::new(),
+            worklist: Worklist::empty(),
         })
     }
 }

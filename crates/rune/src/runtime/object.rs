@@ -261,7 +261,7 @@ impl Object {
 
     /// Take every value in the object apart rather than dropping them where
     /// they are - see [`Worklist::dismantle`].
-    pub(crate) fn dismantle(&mut self, work: &mut Worklist) {
+    pub(crate) fn dismantle<const N: usize>(&mut self, work: &mut Worklist<N>) {
         work.dismantle_all(self.inner.iter_mut().map(|(_, value)| value));
         self.inner.clear();
     }

@@ -496,11 +496,11 @@ impl Stack {
     /// it lives, so that whatever memory taking values apart needs is grown
     /// once rather than for every value which is written over.
     #[inline(always)]
-    pub(crate) fn store_with<O>(
+    pub(crate) fn store_with<O, const N: usize>(
         &mut self,
         out: Output,
         o: O,
-        work: &mut Worklist,
+        work: &mut Worklist<N>,
     ) -> Result<(), StoreError<O::Error>>
     where
         O: IntoOutput,
@@ -573,7 +573,7 @@ impl Stack {
     /// This is what the machine uses, so that the values share the worklist it
     /// keeps - see [`Worklist::dismantle`].
     #[inline]
-    pub(crate) fn dismantle_to(&mut self, addr: Address, work: &mut Worklist) {
+    pub(crate) fn dismantle_to<const N: usize>(&mut self, addr: Address, work: &mut Worklist<N>) {
         let Some(len) = self.top.checked_add(addr.offset()) else {
             return;
         };
@@ -629,7 +629,7 @@ impl Stack {
     ///
     /// This is what the machine uses - see [`Worklist::dismantle`].
     #[inline]
-    pub(crate) fn dismantle_clear(&mut self, work: &mut Worklist) {
+    pub(crate) fn dismantle_clear<const N: usize>(&mut self, work: &mut Worklist<N>) {
         work.dismantle_all(self.stack.iter_mut());
 
         // SAFETY: Taking the values apart left every one of them empty, and an
@@ -735,7 +735,7 @@ impl Stack {
     /// working - see [`Worklist::dismantle`].
     #[inline]
     #[tracing::instrument(skip_all)]
-    pub(crate) fn pop_stack_top(&mut self, top: usize, work: &mut Worklist) {
+    pub(crate) fn pop_stack_top<const N: usize>(&mut self, top: usize, work: &mut Worklist<N>) {
         tracing::trace!(stack = self.stack.len(), self.top);
 
         if let Some(values) = self.stack.get_mut(self.top..) {
@@ -751,11 +751,11 @@ impl Stack {
     /// The value which is written over is taken apart rather than left to its
     /// destructor, since this is the machine working - see
     /// [`Worklist::dismantle`].
-    pub(crate) fn copy(
+    pub(crate) fn copy<const N: usize>(
         &mut self,
         from: Address,
         out: Output,
-        work: &mut Worklist,
+        work: &mut Worklist<N>,
     ) -> Result<(), StoreError<Infallible>> {
         let Some(to) = out.as_addr() else {
             return Ok(());

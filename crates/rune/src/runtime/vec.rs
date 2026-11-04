@@ -222,7 +222,7 @@ impl Vec {
 
     /// Take every value in the vector apart rather than dropping them where
     /// they are - see [`Worklist::dismantle`].
-    pub(crate) fn dismantle(&mut self, work: &mut Worklist) {
+    pub(crate) fn dismantle<const N: usize>(&mut self, work: &mut Worklist<N>) {
         work.dismantle_all(self.inner.iter_mut());
         self.inner.clear();
     }

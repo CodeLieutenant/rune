@@ -76,20 +76,20 @@ mod counters {
 /// already bounds: what waits here came out of the graph and is a fraction of
 /// what it occupied. Few enough values fit without allocating at all, which is
 /// what a destructor handed an ordinary value costs.
-pub(crate) struct Worklist {
+pub(crate) struct Worklist<const N: usize = INLINE> {
     /// The values which are waiting, for as long as there are few enough of
     /// them to keep without allocating.
     ///
     /// Only the first `len` are in use, and every other one holds an empty
     /// inline value, so [`Drop`] only has to look at those which are in use.
-    inline: [ManuallyDrop<Repr>; INLINE],
+    inline: [ManuallyDrop<Repr>; N],
     /// How many of `inline` are in use.
     len: usize,
     /// Where the values which do not fit are kept.
     spilled: rust_alloc::vec::Vec<Repr>,
 }
 
-impl Drop for Worklist {
+impl<const N: usize> Drop for Worklist<N> {
     #[inline]
     fn drop(&mut self) {
         // A walk which completes leaves nothing waiting, so this only drops
@@ -102,7 +102,7 @@ impl Drop for Worklist {
     }
 }
 
-impl fmt::Debug for Worklist {
+impl<const N: usize> fmt::Debug for Worklist<N> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Worklist")
             .field("len", &(self.len + self.spilled.len()))
@@ -115,8 +115,19 @@ impl Worklist {
     /// Construct an empty worklist, which does not allocate until it is handed
     /// more values at once than it can keep.
     pub(crate) const fn new() -> Self {
+        Self::empty()
+    }
+}
+
+impl<const N: usize> Worklist<N> {
+    /// Make a worklist which keeps up to `N` values without allocating.
+    ///
+    /// A worklist which lives as long as its owner, like the one of a virtual
+    /// machine, keeps none inline: the memory it grows is kept for the next
+    /// walk instead.
+    pub(crate) const fn empty() -> Self {
         Self {
-            inline: [const { ManuallyDrop::new(Repr::Inline(Inline::Empty)) }; INLINE],
+            inline: [const { ManuallyDrop::new(Repr::Inline(Inline::Empty)) }; N],
             len: 0,
             spilled: rust_alloc::vec::Vec::new(),
         }
@@ -210,7 +221,7 @@ impl Worklist {
 
     /// Leave a value waiting until it is taken apart.
     fn push(&mut self, repr: Repr) {
-        if self.len < INLINE {
+        if self.len < N {
             // The slot holds an empty inline value, which has nothing to drop.
             self.inline[self.len] = ManuallyDrop::new(repr);
             self.len += 1;
@@ -267,7 +278,21 @@ fn handover(repr: &mut Repr, out: &mut Handover<'_>) {
 /// taken apart in its own right, which is what keeps the walk from descending -
 /// and therefore from costing a native frame for every level a graph nests.
 pub struct Handover<'a> {
-    work: &'a mut Worklist,
+    work: &'a mut dyn Push,
+}
+
+/// Where a [`Handover`] leaves the values it takes out, whatever the inline
+/// capacity of the worklist behind it.
+pub(crate) trait Push {
+    /// Leave a value waiting until it is taken apart.
+    fn push_repr(&mut self, repr: Repr);
+}
+
+impl<const N: usize> Push for Worklist<N> {
+    #[inline]
+    fn push_repr(&mut self, repr: Repr) {
+        self.push(repr);
+    }
 }
 
 impl Handover<'_> {
@@ -320,7 +345,7 @@ impl Handover<'_> {
             return;
         }
 
-        self.work.push(repr);
+        self.work.push_repr(repr);
     }
 }
 
