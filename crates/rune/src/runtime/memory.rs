@@ -219,15 +219,22 @@ impl dyn Memory + '_ {
     {
         if let Some(addr) = out.as_addr() {
             let value = o.into_output().map_err(StoreError::error)?;
+            let slot = self.at_mut(addr)?;
+
+            // What a native function writes over is most often an inline
+            // value, which has nothing to take apart.
+            if slot.is_inline() {
+                // SAFETY: An inline value holds nothing which needs to be
+                // dropped.
+                unsafe { core::ptr::write(slot, value) };
+                return Ok(());
+            }
 
             // A native function has no worklist of its own to take the value
-            // which is replaced apart over, so it gets one which is empty. It
-            // costs nothing until it is handed a value made of other values.
-            let mut worklist = Worklist::new();
-
-            // The value which is replaced is taken apart rather than left to
-            // its destructor, so that the walk does not descend into it.
-            worklist.replace(self.at_mut(addr)?, value);
+            // which is replaced apart over, so it gets one which is empty. The
+            // value is taken apart rather than left to its destructor, so that
+            // the walk does not descend into it.
+            Worklist::new().replace(slot, value);
         }
 
         Ok(())
@@ -460,11 +467,26 @@ impl Stack {
     where
         O: IntoOutput,
     {
+        let Some(addr) = out.as_addr() else {
+            return Ok(());
+        };
+
+        let value = o.into_output().map_err(StoreError::error)?;
+        let slot = self.at_mut(addr)?;
+
+        // What a native function writes over is most often an inline value,
+        // which has nothing to take apart.
+        if slot.is_inline() {
+            // SAFETY: An inline value holds nothing which needs to be dropped.
+            unsafe { core::ptr::write(slot, value) };
+            return Ok(());
+        }
+
         // Whoever writes to a stack without a machine behind them has no
         // worklist to take the value which is replaced apart over, so they get
-        // one which is empty. It costs nothing until it is handed a value made
-        // of other values.
-        self.store_with(out, o, &mut Worklist::new())
+        // one which is empty.
+        Worklist::new().replace(slot, value);
+        Ok(())
     }
 
     /// Write output using the provided [`IntoOutput`] implementation onto the
