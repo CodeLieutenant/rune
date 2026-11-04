@@ -213,7 +213,65 @@ where
     /// To handle other outcomes and more configurability see
     /// [`VmExecution::resume`].
     pub fn complete(&mut self) -> Result<Value, VmError> {
-        self.resume().complete()?.into_complete()
+        // This is the loop which `VmResume` drives, run directly: a
+        // synchronous call does not need a future, a waker or a place to keep
+        // what it awaits between polls.
+        let _guard = env::enter_execution()?;
+
+        let state = replace(&mut self.state, ExecutionState::Suspended);
+
+        if let ExecutionState::Resumed(out) = state {
+            self.vm.as_mut().store(out, Value::empty())?;
+        }
+
+        loop {
+            let vm = self.vm.as_mut();
+            let result = vm.run(None);
+
+            match VmError::with_vm(result, vm)? {
+                VmHalt::Exited(addr) => {
+                    self.state = ExecutionState::Exited(addr);
+                }
+                VmHalt::Awaited(awaited) => {
+                    // A future which is ready on its first poll completes here,
+                    // anything else cannot be awaited synchronously.
+                    let mut awaited = pin!(awaited);
+                    let mut cx = Context::from_waker(&COMPLETE_WAKER);
+
+                    match awaited.as_mut().poll(&mut cx, vm) {
+                        Poll::Ready(result) => result?,
+                        Poll::Pending => {
+                            return Err(VmError::new(VmErrorKind::Halted {
+                                halt: VmHaltInfo::Awaited,
+                            }));
+                        }
+                    }
+
+                    continue;
+                }
+                VmHalt::VmCall(vm_call) => {
+                    vm_call.into_execution(self)?;
+                    continue;
+                }
+                VmHalt::Yielded(_, out) => {
+                    self.state = ExecutionState::Resumed(out);
+                    return Err(VmError::new(VmErrorKind::Halted {
+                        halt: VmHaltInfo::Yielded,
+                    }));
+                }
+                VmHalt::Limited => {
+                    return Err(VmError::new(VmErrorKind::Halted {
+                        halt: VmHaltInfo::Limited,
+                    }));
+                }
+            }
+
+            if self.states.is_empty() {
+                return self.end();
+            }
+
+            self.pop_state()?;
+        }
     }
 
     /// Asynchronously complete the current execution.
