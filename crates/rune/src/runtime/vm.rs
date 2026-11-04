@@ -433,6 +433,21 @@ impl Vm {
         self.into_execution().resume().await?.into_complete()
     }
 
+    /// Clear the machine and set up a call of `name` with `args`.
+    ///
+    /// Unlike [`Vm::execute`], this does not borrow the machine for the
+    /// execution. Pass the machine to [`VmExecution::from_prepared`] to run the
+    /// call, and take it back with [`VmExecution::into_vm`] to reuse it, along
+    /// with the capacity of its stack.
+    pub fn prepare_call(&mut self, name: impl ToTypeHash, args: impl Args) -> Result<(), VmError> {
+        self.ip = 0;
+        self.dismantle_clear();
+        self.call_frames.clear();
+        self.set_entrypoint(name, args.count())?;
+        args.into_stack(&mut self.stack)?;
+        Ok(())
+    }
+
     /// Call the function identified by the given name.
     ///
     /// Computing the function hash from the name can be a bit costly, so it's

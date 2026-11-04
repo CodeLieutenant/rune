@@ -87,6 +87,19 @@ impl<T> VmExecution<T> {
         }
     }
 
+    /// Construct an execution from a virtual machine set up with
+    /// [`Vm::prepare_call`].
+    #[inline]
+    pub fn from_prepared(vm: T) -> Self {
+        Self::new(vm)
+    }
+
+    /// Take back the virtual machine, so that it can run another call.
+    #[inline]
+    pub fn into_vm(self) -> T {
+        self.vm
+    }
+
     /// Get a reference to the current virtual machine.
     #[inline]
     pub fn vm(&self) -> &Vm
