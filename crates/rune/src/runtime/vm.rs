@@ -3427,6 +3427,34 @@ impl Vm {
                     self.op_store(value, out)?;
                 }
                 inst::Kind::Copy { addr, out } => {
+                    // A `for` loop copies its iterator before each call to
+                    // `next`. Over an integer range, step the iterator in place
+                    // and skip the copy and the call.
+                    if let Some(copy) = out.as_addr() {
+                        if let Some((next, len)) = self.unit.instruction_at(self.ip)? {
+                            let call_out = match next.kind {
+                                inst::Kind::CallFn {
+                                    addr, args: 1, out, ..
+                                } if addr == copy => Some(out),
+                                inst::Kind::CallAssociated {
+                                    hash,
+                                    addr,
+                                    args: 1,
+                                    out,
+                                } if addr == copy && hash == Protocol::NEXT.hash => Some(out),
+                                _ => None,
+                            };
+
+                            if let Some(call_out) = call_out {
+                                let at = self.ip.wrapping_add(len);
+
+                                if self.fused_range_step(addr, call_out, at)? {
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+
                     self.op_copy(addr, out)?;
                 }
                 inst::Kind::Move { addr, out } => {
