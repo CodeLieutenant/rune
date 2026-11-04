@@ -647,7 +647,9 @@ impl Value {
             Repr::Any(value) => Ok(Value {
                 repr: ManuallyDrop::new(Repr::Any(value.take()?)),
             }),
-            repr => Ok(Value { repr: ManuallyDrop::new(repr) }),
+            repr => Ok(Value {
+                repr: ManuallyDrop::new(repr),
+            }),
         }
     }
 
@@ -1437,6 +1439,7 @@ impl Value {
     ///
     /// # Ok::<(), rune::support::Error>(())
     /// ```
+    #[inline]
     pub fn as_integer<T>(&self) -> Result<T, RuntimeError>
     where
         T: TryFrom<u64> + TryFrom<i64>,
@@ -1460,6 +1463,7 @@ impl Value {
     }
 
     /// Test if the value is inline.
+    #[inline(always)]
     pub(crate) fn is_inline(&self) -> bool {
         matches!(*self.repr, Repr::Inline(..))
     }
