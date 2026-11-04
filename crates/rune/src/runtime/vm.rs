@@ -3423,6 +3423,38 @@ impl Vm {
                 inst::Kind::LoadFn { hash, out } => {
                     self.op_load_fn(hash, out)?;
                 }
+                inst::Kind::Store {
+                    value: InstValue::Integer(constant),
+                    out,
+                } => {
+                    self.store_inline(out, Inline::Signed(constant))?;
+
+                    // An arithmetic operation which reads the constant right
+                    // after it is stored runs here, without a dispatch of its
+                    // own. The constant stays in its slot.
+                    if let Some(slot) = out.as_addr() {
+                        if let Some((next, len)) = self.unit.instruction_at(self.ip)? {
+                            if let inst::Kind::Arithmetic { op, a, b, out } = next.kind {
+                                let operands = if b == slot {
+                                    self.stack.at(a).as_inline_signed().map(|a| (a, constant))
+                                } else if a == slot {
+                                    self.stack.at(b).as_inline_signed().map(|b| (constant, b))
+                                } else {
+                                    None
+                                };
+
+                                // An overflow leaves the operation to run on its
+                                // own, which raises the error.
+                                if let Some((a, b)) = operands {
+                                    if let Some(value) = Self::signed_arithmetic(op, a, b) {
+                                        self.store_inline(out, Inline::Signed(value))?;
+                                        self.ip = self.ip.wrapping_add(len);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 inst::Kind::Store { value, out } => {
                     self.op_store(value, out)?;
                 }
