@@ -108,6 +108,16 @@ pub fn acquire() -> BudgetGuard {
     BudgetGuard(self::no_std::rune_budget_replace(usize::MAX))
 }
 
+/// Test if no budget is in effect.
+///
+/// A budget is only ever set for the duration of [`with`], which puts back
+/// the one it replaced, so a loop which finds no budget in effect when it
+/// starts can skip [`take`] until it returns to its caller.
+#[inline]
+pub(crate) fn is_unlimited() -> bool {
+    self::no_std::rune_budget_get() == usize::MAX
+}
+
 /// Take a single permit from the ambient budget, if one is set.
 ///
 /// Returns `false` if the budget has been exhausted.

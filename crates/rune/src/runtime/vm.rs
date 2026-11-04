@@ -3301,8 +3301,12 @@ impl Vm {
             diagnostics,
         );
 
+        // Reading the budget costs an access to thread-local storage per
+        // instruction, which is skipped when no budget is in effect.
+        let unlimited = budget::is_unlimited();
+
         loop {
-            if !budget::take() {
+            if !unlimited && !budget::take() {
                 return Ok(VmHalt::Limited);
             }
 
