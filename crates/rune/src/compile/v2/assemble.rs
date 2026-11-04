@@ -2773,16 +2773,56 @@ fn call_ids(
 /// nothing assembled after it writes to that variable, since the operands are
 /// read once every one of them has been assembled.
 ///
-/// Only a literal and a variable are known here not to write, which is enough
-/// to keep the shapes which are worth not copying from being copied. Anything
-/// else is assumed to write, since finding out would mean walking the whole
-/// expression - which is what the driver is here to avoid.
+/// A literal, a variable, a type and a constant write nothing, and neither
+/// does a group or an operator which does not assign, as long as what they are
+/// made of writes nothing. That
+/// covers an operand like the one in `s = s + (i % 8) * 3`, which would
+/// otherwise have `s` copied before every such statement.
+///
+/// The walk looks at no more than [`WRITES_NOTHING_LIMIT`] expressions and
+/// assumes that anything larger writes, so it costs the compiler a bounded
+/// amount however deep the expression is.
 fn writes_nothing(cx: &Ctxt<'_, '_, '_>, id: hir::ExprId) -> bool {
-    matches!(
-        cx.exprs.get(id).kind,
-        hir::ExprKind::Lit(..) | hir::ExprKind::Variable(..) | hir::ExprKind::Type(..)
-    )
+    let mut pending = [id; WRITES_NOTHING_LIMIT];
+    let mut len: usize = 1;
+    let mut seen = 0;
+
+    while let Some(next) = len.checked_sub(1) {
+        len = next;
+        seen += 1;
+
+        if seen > WRITES_NOTHING_LIMIT {
+            return false;
+        }
+
+        let operands: &[hir::ExprId] = match cx.exprs.get(pending[len]).kind {
+            hir::ExprKind::Lit(..)
+            | hir::ExprKind::Variable(..)
+            | hir::ExprKind::Type(..)
+            | hir::ExprKind::Const(..) => {
+                continue;
+            }
+            hir::ExprKind::Binary(binary) if !binary.op.is_assign() => &[binary.lhs, binary.rhs],
+            hir::ExprKind::Unary(unary) => &[unary.expr],
+            hir::ExprKind::Group(inner) => &[inner],
+            _ => return false,
+        };
+
+        for &operand in operands {
+            let Some(slot) = pending.get_mut(len) else {
+                return false;
+            };
+
+            *slot = operand;
+            len += 1;
+        }
+    }
+
+    true
 }
+
+/// How many expressions [`writes_nothing`] looks at before it gives up.
+const WRITES_NOTHING_LIMIT: usize = 16;
 
 /// Start assembling a sequence of expressions into a linear run of addresses.
 fn seq_start<'a, 'hir, 'o>(
