@@ -115,25 +115,25 @@ pub(crate) struct Guard {
 }
 
 impl Guard {
-    /// Construct a new environment guard with the given context and unit.
+    /// Make the given context, unit and globals the environment until the
+    /// returned guard is dropped.
+    ///
+    /// The environment borrows them, so that setting it up costs no change
+    /// to a reference count.
     ///
     /// # Safety
     ///
     /// The returned guard must be dropped before the pointed to elements are.
     #[inline]
     pub(crate) fn new(
-        context: Arc<RuntimeContext>,
-        unit: Arc<Unit>,
-        globals: Globals,
+        context: &Arc<RuntimeContext>,
+        unit: &Arc<Unit>,
+        globals: &Globals,
         diagnostics: Option<NonNull<VmDiagnosticsObj>>,
     ) -> Guard {
-        let (context, Global) = Arc::into_raw_with_allocator(context);
-        let (unit, Global) = Arc::into_raw_with_allocator(unit);
-
-        let globals = globals.into_inner().map(|globals| {
-            let globals = Rc::into_raw(globals);
-            unsafe { NonNull::new_unchecked(globals.cast_mut()) }
-        });
+        let context = Arc::as_ptr(context);
+        let unit = Arc::as_ptr(unit);
+        let globals = globals.inner_ptr();
 
         // The depth of the walk in progress is carried over, since registering
         // an environment is what a walk which goes through a protocol function
@@ -162,21 +162,9 @@ impl Guard {
 impl Drop for Guard {
     #[inline]
     fn drop(&mut self) {
-        let old_env = self::no_std::rune_env_replace(self.env);
-
-        unsafe {
-            if let Some(context) = old_env.context {
-                drop(Arc::from_raw_in(context.as_ptr().cast_const(), Global));
-            }
-
-            if let Some(unit) = old_env.unit {
-                drop(Arc::from_raw_in(unit.as_ptr().cast_const(), Global));
-            }
-
-            if let Some(globals) = old_env.globals {
-                drop(Rc::from_raw(globals.as_ptr().cast_const()));
-            }
-        }
+        // The environment only borrowed what it pointed to, so putting the
+        // previous one back is all there is to do.
+        self::no_std::rune_env_replace(self.env);
     }
 }
 

@@ -2,6 +2,7 @@
 
 use core::cell::RefCell;
 use core::fmt;
+use core::ptr::NonNull;
 
 use rust_alloc::rc::Rc;
 
@@ -287,10 +288,11 @@ impl Globals {
         Ok(())
     }
 
-    /// Deconstruct this handle into its shared allocation.
+    /// The shared allocation this handle points to, without a change to its
+    /// reference count.
     #[inline]
-    pub(crate) fn into_inner(self) -> Option<Rc<GlobalsInner>> {
-        self.inner
+    pub(crate) fn inner_ptr(&self) -> Option<NonNull<GlobalsInner>> {
+        self.inner.as_ref().map(|inner| NonNull::from(&**inner))
     }
 
     /// Construct a handle from a shared allocation.

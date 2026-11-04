@@ -3377,12 +3377,7 @@ impl Vm {
     where
         F: FnOnce() -> T,
     {
-        let _guard = runtime::env::Guard::new(
-            self.context.clone(),
-            self.unit.clone(),
-            self.globals.clone(),
-            None,
-        );
+        let _guard = runtime::env::Guard::new(&self.context, &self.unit, &self.globals, None);
         f()
     }
 
@@ -3403,12 +3398,8 @@ impl Vm {
 
         // NB: set up environment so that native function can access context and
         // unit.
-        let _guard = runtime::env::Guard::new(
-            self.context.clone(),
-            self.unit.clone(),
-            self.globals.clone(),
-            diagnostics,
-        );
+        let _guard =
+            runtime::env::Guard::new(&self.context, &self.unit, &self.globals, diagnostics);
 
         // Reading the budget costs an access to thread-local storage per
         // instruction, which is skipped when no budget is in effect.
