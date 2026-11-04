@@ -217,7 +217,9 @@ pub(crate) use self::vm_error::{VmErrorKind, VmIntegerRepr};
 
 mod vm_execution;
 pub(crate) use self::vm_execution::ExecutionState;
-pub use self::vm_execution::{HostStep, VmExecution, VmOutcome, VmResume, VmSendExecution};
+pub use self::vm_execution::{
+    ClearedVm, HostStep, PooledExecution, VmExecution, VmOutcome, VmResume, VmSendExecution,
+};
 
 mod vm_halt;
 pub(crate) use self::vm_halt::{VmHalt, VmHaltInfo};

@@ -7,7 +7,7 @@ use core::task::{ready, Context, Poll, RawWaker, RawWakerVTable, Waker};
 use crate::alloc::prelude::*;
 use crate::async_vm_try;
 use crate::runtime::budget::Budget;
-use crate::runtime::{budget, env, Awaited};
+use crate::runtime::{budget, env, Args, Awaited};
 use crate::shared::AssertSend;
 use crate::sync::Arc;
 
@@ -937,4 +937,60 @@ pub enum HostStep {
     },
     /// The execution ran out of budget.
     Limited,
+}
+
+/// A virtual machine which holds no values, so that it can move to another
+/// thread to run its next call.
+///
+/// The machine lives in a box, so that handing it between a pool, an
+/// execution and back moves a pointer rather than the whole machine.
+///
+/// Only Rune builds one: from a context and a unit with [`ClearedVm::new`], or
+/// by clearing a machine after a call with [`PooledExecution::complete`]. It is
+/// [`Send`] for the same reason [`VmSendExecution`] is.
+pub struct ClearedVm(rust_alloc::boxed::Box<Vm>);
+
+// Safety: the machine holds no values, see the type documentation.
+unsafe impl Send for ClearedVm {}
+
+impl ClearedVm {
+    /// Build a machine with an empty stack.
+    pub fn new(context: Arc<RuntimeContext>, unit: Arc<Unit>) -> Self {
+        Self(rust_alloc::boxed::Box::new(Vm::new(context, unit)))
+    }
+
+    /// Set up a call of a function looked up with [`Vm::lookup_entry`].
+    pub fn execute_entry(
+        mut self,
+        entry: &crate::runtime::Entry,
+        args: impl Args + Send,
+    ) -> Result<PooledExecution, VmError> {
+        self.0.prepare_entry(entry, args)?;
+        Ok(PooledExecution(VmExecution::new(self.0)))
+    }
+}
+
+/// An execution on a [`ClearedVm`], which hands the machine back when it ends.
+pub struct PooledExecution(VmExecution<rust_alloc::boxed::Box<Vm>>);
+
+// Safety: we wrap all APIs around the [VmExecution], preventing values from
+// escaping from the contained virtual machine.
+unsafe impl Send for PooledExecution {}
+
+impl PooledExecution {
+    /// Complete the execution, and hand the machine back cleared, so that it
+    /// can run another call.
+    pub fn complete(mut self) -> impl Future<Output = (Result<Value, VmError>, ClearedVm)> + Send {
+        let future = async move {
+            let result = self.0.resume().await.and_then(VmOutcome::into_complete);
+            let mut vm = self.0.into_vm();
+            vm.dismantle_clear();
+            (result, ClearedVm(vm))
+        };
+
+        // Safety: we wrap all APIs around the [VmExecution], preventing values
+        // from escaping from the contained virtual machine, and the machine is
+        // cleared before it is handed back.
+        unsafe { AssertSend::new(future) }
+    }
 }
