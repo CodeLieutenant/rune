@@ -965,6 +965,42 @@ pub(crate) enum Kind {
         /// Whether the produced value from the operation should be kept or not.
         out: Output,
     },
+    /// An arithmetic operation whose second operand is a constant integer.
+    ///
+    /// A signed integer in `a` is computed with `value` directly. Any other
+    /// value in `a` has `value` stored in `b`, a slot of the frame which holds
+    /// nothing else, and runs the operation like [`Kind::Arithmetic`].
+    #[cfg_attr(feature = "musli", musli(packed))]
+    ArithmeticConst {
+        /// The kind of operation.
+        op: InstArithmeticOp,
+        /// The address of the first argument.
+        a: Address,
+        /// The slot which receives the constant when the general operation runs.
+        b: Address,
+        /// The constant second argument.
+        value: i64,
+        /// Whether the produced value from the operation should be kept or not.
+        out: Output,
+    },
+    /// A comparison whose second operand is a constant integer.
+    ///
+    /// A signed integer in `a` is compared with `value` directly. Any other
+    /// value in `a` has `value` stored in `b`, a slot of the frame which holds
+    /// nothing else, and runs the comparison like [`Kind::Op`].
+    #[cfg_attr(feature = "musli", musli(packed))]
+    OpConst {
+        /// The kind of comparison.
+        op: InstOp,
+        /// The address of the first argument.
+        a: Address,
+        /// The slot which receives the constant when the general comparison runs.
+        b: Address,
+        /// The constant second argument.
+        value: i64,
+        /// Whether the produced value from the comparison should be kept or not.
+        out: Output,
+    },
     /// A bitwise operation.
     #[cfg_attr(feature = "musli", musli(packed))]
     Bitwise {

@@ -5088,13 +5088,16 @@ where
             let rhs = b.addr()?.addr();
             let out = needs.alloc_output()?;
 
-            let inst = match binary_inst(hir.op, lhs, rhs, out, span) {
-                Ok(inst) => inst,
-                Err(error) => {
-                    a.free()?;
-                    b.free()?;
-                    return Err(error);
-                }
+            let inst = match const_binary_inst(cx.asm, hir.op, lhs, rhs, out) {
+                Some(inst) => inst,
+                None => match binary_inst(hir.op, lhs, rhs, out, span) {
+                    Ok(inst) => inst,
+                    Err(error) => {
+                        a.free()?;
+                        b.free()?;
+                        return Err(error);
+                    }
+                },
             };
 
             cx.asm.push(inst, span)?;
@@ -5235,6 +5238,60 @@ fn expr_leaf<'a, 'hir>(
 
 /// The instruction which implements a non-conditional, non-assigning binary
 /// operator over the operands in `a` and `b`.
+/// The instruction for a binary operation whose right-hand side was just
+/// stored as a constant integer in `b`. The store is dropped and the
+/// instruction carries the constant, which saves a dispatch and a write.
+fn const_binary_inst(
+    asm: &mut Assembly,
+    op: ast::BinOp,
+    a: inst::Address,
+    b: inst::Address,
+    out: Output,
+) -> Option<inst::Kind> {
+    enum Const {
+        Arithmetic(InstArithmeticOp),
+        Op(InstOp),
+    }
+
+    let kind = match op {
+        ast::BinOp::Add(..) => Const::Arithmetic(InstArithmeticOp::Add),
+        ast::BinOp::Sub(..) => Const::Arithmetic(InstArithmeticOp::Sub),
+        ast::BinOp::Mul(..) => Const::Arithmetic(InstArithmeticOp::Mul),
+        ast::BinOp::Div(..) => Const::Arithmetic(InstArithmeticOp::Div),
+        ast::BinOp::Rem(..) => Const::Arithmetic(InstArithmeticOp::Rem),
+        ast::BinOp::Eq(..) => Const::Op(InstOp::Eq),
+        ast::BinOp::Neq(..) => Const::Op(InstOp::Neq),
+        ast::BinOp::Lt(..) => Const::Op(InstOp::Lt),
+        ast::BinOp::Gt(..) => Const::Op(InstOp::Gt),
+        ast::BinOp::Lte(..) => Const::Op(InstOp::Le),
+        ast::BinOp::Gte(..) => Const::Op(InstOp::Ge),
+        _ => return None,
+    };
+
+    if a == b {
+        return None;
+    }
+
+    let value = asm.take_integer_store(b)?;
+
+    Some(match kind {
+        Const::Arithmetic(op) => inst::Kind::ArithmeticConst {
+            op,
+            a,
+            b,
+            value,
+            out,
+        },
+        Const::Op(op) => inst::Kind::OpConst {
+            op,
+            a,
+            b,
+            value,
+            out,
+        },
+    })
+}
+
 fn binary_inst(
     op: ast::BinOp,
     a: inst::Address,

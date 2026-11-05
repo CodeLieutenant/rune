@@ -1838,6 +1838,44 @@ impl Vm {
         self.op_arithmetic_general(op, lhs, rhs, out)
     }
 
+    #[inline(always)]
+    fn op_arithmetic_const(
+        &mut self,
+        op: InstArithmeticOp,
+        lhs: Address,
+        slot: Address,
+        value: i64,
+        out: Output,
+    ) -> Result<(), VmError> {
+        if let Some(a) = self.stack.at(lhs).as_inline_signed() {
+            if let Some(value) = Self::signed_arithmetic(op, a, value) {
+                return self.store_inline(out, Inline::Signed(value));
+            }
+        }
+
+        self.store_inline(slot.output(), Inline::Signed(value))?;
+        self.op_arithmetic_general(op, lhs, slot, out)
+    }
+
+    #[inline(always)]
+    fn op_op_const(
+        &mut self,
+        op: InstOp,
+        lhs: Address,
+        slot: Address,
+        value: i64,
+        out: Output,
+    ) -> Result<(), VmError> {
+        if let Some(a) = self.stack.at(lhs).as_inline_signed() {
+            if let Some(result) = Self::signed_compare(op, a, value) {
+                return self.store_inline(out, Inline::Bool(result));
+            }
+        }
+
+        self.store_inline(slot.output(), Inline::Signed(value))?;
+        self.op_op_general(op, lhs, slot, out)
+    }
+
     /// The arithmetic operation for any operands, out of line so that the
     /// dispatch loop stays small.
     #[inline(never)]
@@ -3626,51 +3664,6 @@ impl Vm {
                     out,
                 } => {
                     self.store_inline(out, Inline::Signed(constant))?;
-
-                    // An arithmetic operation which reads the constant right
-                    // after it is stored runs here, without a dispatch of its
-                    // own. The constant stays in its slot.
-                    if let Some(slot) = out.as_addr() {
-                        if let Some((next, len)) = self.unit.instruction_at(self.ip)? {
-                            // A comparison which reads the constant, such as the
-                            // condition of `while j < 8`, runs here too.
-                            if let inst::Kind::Op { op, a, b, out } = next.kind {
-                                let operands = if b == slot {
-                                    self.stack.at(a).as_inline_signed().map(|a| (a, constant))
-                                } else if a == slot {
-                                    self.stack.at(b).as_inline_signed().map(|b| (constant, b))
-                                } else {
-                                    None
-                                };
-
-                                if let Some((a, b)) = operands {
-                                    if let Some(result) = Self::signed_compare(op, a, b) {
-                                        self.store_inline(out, Inline::Bool(result))?;
-                                        self.ip = self.ip.wrapping_add(len);
-                                    }
-                                }
-                            }
-
-                            if let inst::Kind::Arithmetic { op, a, b, out } = next.kind {
-                                let operands = if b == slot {
-                                    self.stack.at(a).as_inline_signed().map(|a| (a, constant))
-                                } else if a == slot {
-                                    self.stack.at(b).as_inline_signed().map(|b| (constant, b))
-                                } else {
-                                    None
-                                };
-
-                                // An overflow leaves the operation to run on its
-                                // own, which raises the error.
-                                if let Some((a, b)) = operands {
-                                    if let Some(value) = Self::signed_arithmetic(op, a, b) {
-                                        self.store_inline(out, Inline::Signed(value))?;
-                                        self.ip = self.ip.wrapping_add(len);
-                                    }
-                                }
-                            }
-                        }
-                    }
                 }
                 inst::Kind::Store { value, out } => {
                     self.op_store(value, out)?;
@@ -3852,6 +3845,24 @@ impl Vm {
                 }
                 inst::Kind::Arithmetic { op, a, b, out } => {
                     self.op_arithmetic(op, a, b, out)?;
+                }
+                inst::Kind::ArithmeticConst {
+                    op,
+                    a,
+                    b,
+                    value,
+                    out,
+                } => {
+                    self.op_arithmetic_const(op, a, b, value, out)?;
+                }
+                inst::Kind::OpConst {
+                    op,
+                    a,
+                    b,
+                    value,
+                    out,
+                } => {
+                    self.op_op_const(op, a, b, value, out)?;
                 }
                 inst::Kind::Bitwise { op, a, b, out } => {
                     self.op_bitwise(op, a, b, out)?;

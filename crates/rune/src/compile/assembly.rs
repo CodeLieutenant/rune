@@ -72,6 +72,39 @@ impl Assembly {
         label
     }
 
+    /// Removes the last instruction when it stores a constant integer in
+    /// `addr` and no jump lands right after it, and returns the integer.
+    ///
+    /// The instruction which reads `addr` next then carries the integer itself.
+    pub(crate) fn take_integer_store(&mut self, addr: Address) -> Option<i64> {
+        if self.labels.contains_key(&self.instructions.len()) {
+            return None;
+        }
+
+        let (
+            AssemblyInst::Raw {
+                raw:
+                    inst::Kind::Store {
+                        value: inst::InstValue::Integer(value),
+                        out,
+                    },
+            },
+            _,
+        ) = self.instructions.last()?
+        else {
+            return None;
+        };
+
+        if out.as_addr() != Some(addr) {
+            return None;
+        }
+
+        let value = *value;
+        self.instructions.pop();
+        self.comments.remove(&self.instructions.len());
+        Some(value)
+    }
+
     /// Apply the label at the current instruction offset.
     pub(crate) fn label(&mut self, label: &Label) -> compile::Result<()> {
         let len = self.labels.len();
