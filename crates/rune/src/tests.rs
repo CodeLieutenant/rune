@@ -588,6 +588,8 @@ mod vm_function_pointers;
 #[cfg(not(miri))]
 mod vm_general;
 #[cfg(not(miri))]
+mod vm_jit;
+#[cfg(not(miri))]
 mod vm_not_used;
 #[cfg(not(miri))]
 mod vm_pool;

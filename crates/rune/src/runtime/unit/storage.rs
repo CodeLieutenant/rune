@@ -94,6 +94,14 @@ pub struct ArrayUnit {
     instructions: Vec<Inst>,
 }
 
+impl ArrayUnit {
+    /// The instructions, for changes which keep every jump valid.
+    #[inline]
+    pub(crate) fn instructions_mut(&mut self) -> &mut [Inst] {
+        &mut self.instructions
+    }
+}
+
 impl UnitEncoder for ArrayUnit {
     #[inline]
     fn offset(&self) -> usize {

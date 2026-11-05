@@ -107,6 +107,10 @@ impl Kind {
     }
 }
 
+/// The value a native function behind a `JitEnter` instruction returns when the
+/// interpreter has to run the call instead.
+pub const JIT_BAIL: i64 = i64::MIN;
+
 /// The kind of an instruction in the virtual machine.
 #[derive(Debug, TryClone, Clone, Copy, InstDisplay)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -1023,6 +1027,23 @@ pub(crate) enum Kind {
         value: i64,
         /// Whether the produced value from the comparison should be kept or not.
         out: Output,
+    },
+    /// The first instruction of a function which runs as native code when
+    /// every argument is a signed integer.
+    ///
+    /// It allocates `size` slots like [`Kind::Allocate`]. Then it calls `func`
+    /// with the `args` arguments, and returns the result unless it is
+    /// [`JIT_BAIL`]. Otherwise the function runs in the interpreter from the
+    /// next instruction.
+    #[cfg_attr(feature = "musli", musli(packed))]
+    JitEnter {
+        /// The number of slots of the frame.
+        size: usize,
+        /// The number of arguments.
+        args: usize,
+        /// The address of an `extern "C" fn` which takes `args` values of
+        /// type `i64` and returns an `i64`.
+        func: u64,
     },
     /// A bitwise operation.
     #[cfg_attr(feature = "musli", musli(packed))]

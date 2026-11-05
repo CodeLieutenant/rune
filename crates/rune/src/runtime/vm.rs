@@ -1838,6 +1838,42 @@ impl Vm {
         self.op_arithmetic_general(op, lhs, rhs, out)
     }
 
+    /// Calls the native function of a `JitEnter` instruction with the
+    /// arguments in the frame, or returns `None` when an argument is not a
+    /// signed integer or the function bails.
+    #[inline(never)]
+    fn op_jit(&self, args: usize, func: u64) -> Option<i64> {
+        let slots = self.stack.slice_at(Address::ZERO, args).ok()?;
+        let mut a = [0i64; 4];
+
+        for (to, value) in a.iter_mut().zip(slots) {
+            *to = value.as_inline_signed()?;
+        }
+
+        let func = func as usize;
+
+        // SAFETY: `Unit::install_jit` requires `func` to take `args` values of
+        // type `i64` and return an `i64`.
+        let value = unsafe {
+            match args {
+                0 => core::mem::transmute::<usize, extern "C" fn() -> i64>(func)(),
+                1 => core::mem::transmute::<usize, extern "C" fn(i64) -> i64>(func)(a[0]),
+                2 => {
+                    core::mem::transmute::<usize, extern "C" fn(i64, i64) -> i64>(func)(a[0], a[1])
+                }
+                3 => core::mem::transmute::<usize, extern "C" fn(i64, i64, i64) -> i64>(func)(
+                    a[0], a[1], a[2],
+                ),
+                4 => core::mem::transmute::<usize, extern "C" fn(i64, i64, i64, i64) -> i64>(func)(
+                    a[0], a[1], a[2], a[3],
+                ),
+                _ => return None,
+            }
+        };
+
+        (value != inst::JIT_BAIL).then_some(value)
+    }
+
     #[inline(always)]
     fn op_arithmetic_const(
         &mut self,
@@ -3657,6 +3693,19 @@ impl Vm {
             match inst.kind {
                 inst::Kind::Allocate { size } => {
                     self.op_allocate(size)?;
+                }
+                inst::Kind::JitEnter { size, args, func } => {
+                    self.op_allocate(size)?;
+
+                    if unlimited {
+                        if let Some(value) = self.op_jit(args, func) {
+                            self.store_inline(Output::keep(0), Inline::Signed(value))?;
+
+                            if let Some(out) = self.op_return(Address::ZERO)? {
+                                return Ok(VmHalt::Exited(out.as_addr()));
+                            }
+                        }
+                    }
                 }
                 inst::Kind::Not { addr, out } => {
                     self.op_not(addr, out)?;

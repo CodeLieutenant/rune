@@ -33,6 +33,7 @@ std = ["alloc", "serde/std", "rune-core/std", "rune-alloc/std", "musli?/std", "o
 alloc = ["rune-alloc/alloc", "rune-core/alloc", "once_cell/alloc", "serde?/alloc"]
 musli = ["dep:musli-core", "rune-core/musli", "rune-alloc/musli"]
 serde = ["dep:serde", "rune-alloc/serde", "relative-path?/serde"]
+jit = ["alloc", "dep:wasm-encoder"]
 
 [dependencies]
 rune-macros = { version = "=0.15.0", path = "../rune-macros" }
@@ -49,6 +50,7 @@ ryu = "1.0.23"
 serde = { version = "1.0.229", default-features = false, optional = true, features = ["derive", "rc"] }
 musli = { version = "0.2.1", default-features = false, optional = true, features = ["alloc"] }
 musli-core = { version = "0.2.0", default-features = false, optional = true, features = ["alloc"] }
+wasm-encoder = { version = "0.263.0", default-features = false, optional = true }
 once_cell = { version = "1.21.4", default-features = false, features = ["critical-section"] }
 
 anyhow = { version = "1.0.104", default-features = false, optional = true }

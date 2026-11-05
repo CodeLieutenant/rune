@@ -206,7 +206,7 @@ impl<S> Unit<S> {
     }
 
     /// Iterate over dynamic functions.
-    #[cfg(feature = "cli")]
+    #[cfg(any(feature = "cli", feature = "jit"))]
     #[inline]
     pub(crate) fn iter_functions(&self) -> impl Iterator<Item = (Hash, &UnitFn)> + '_ {
         self.logic.functions.iter().map(|(h, f)| (*h, f))
@@ -311,6 +311,40 @@ where
     #[inline]
     pub(crate) fn iter_instructions(&self) -> impl Iterator<Item = (usize, Inst)> + '_ {
         self.logic.storage.iter()
+    }
+}
+
+impl Unit<ArrayUnit> {
+    /// Runs the function at instruction `offset` as native code when every
+    /// argument is a signed integer.
+    ///
+    /// The first instruction of the function becomes `JitEnter`. Returns `false` when that instruction is not an allocation, which is
+    /// the case when a function is installed twice.
+    ///
+    /// # Safety
+    ///
+    /// `func` must be the address of an `extern "C" fn` which takes `args`
+    /// values of type `i64` and returns an `i64`, and which computes what the
+    /// function computes, or returns `i64::MIN` to bail. The function
+    /// must take at most four arguments and have no side effects, because the
+    /// interpreter runs it again after a bail.
+    pub unsafe fn install_jit(&mut self, offset: usize, args: usize, func: u64) -> bool {
+        use crate::runtime::inst::Kind;
+
+        let Some(slot) = self.logic.storage.instructions_mut().get_mut(offset) else {
+            return false;
+        };
+
+        let Kind::Allocate { size } = slot.kind else {
+            return false;
+        };
+
+        if args > 4 || size < args.max(1) {
+            return false;
+        }
+
+        *slot = Inst::new(Kind::JitEnter { size, args, func });
+        true
     }
 }
 

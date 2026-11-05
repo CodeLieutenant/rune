@@ -97,6 +97,10 @@ pub(crate) mod into_output;
 pub use self::into_output::IntoOutput;
 
 pub(crate) mod inst;
+
+#[cfg(feature = "jit")]
+#[cfg_attr(rune_docsrs, doc(cfg(feature = "jit")))]
+pub mod jit;
 pub use self::inst::{Address, Inst, Output};
 pub(crate) use self::inst::{
     InstArithmeticOp, InstBitwiseOp, InstOp, InstRange, InstShiftOp, InstTarget, InstValue,
