@@ -84,6 +84,29 @@ impl fmt::Display for PanicReason {
     }
 }
 
+impl Kind {
+    /// Test if the virtual machine runs the instruction in its loop for
+    /// straight-line code and jumps.
+    #[inline(always)]
+    pub(crate) fn is_hot(&self) -> bool {
+        matches!(
+            self,
+            Kind::Store { .. }
+                | Kind::Copy { .. }
+                | Kind::Move { .. }
+                | Kind::Drop { .. }
+                | Kind::Jump { .. }
+                | Kind::JumpIf { .. }
+                | Kind::JumpIfNot { .. }
+                | Kind::IterNext { .. }
+                | Kind::Op { .. }
+                | Kind::OpConst { .. }
+                | Kind::Arithmetic { .. }
+                | Kind::ArithmeticConst { .. }
+        )
+    }
+}
+
 /// The kind of an instruction in the virtual machine.
 #[derive(Debug, TryClone, Clone, Copy, InstDisplay)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]

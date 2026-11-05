@@ -3490,6 +3490,125 @@ impl Vm {
         f()
     }
 
+    /// Runs the instructions which a loop body is made of, until the next
+    /// instruction is one of the others, which `run` dispatches.
+    ///
+    /// The function is small, so a WebAssembly engine keeps its state in
+    /// registers, which it does not do for the full dispatch of `run`. None of
+    /// these instructions calls a function, returns or replaces the unit.
+    ///
+    /// Returns `false` when it ran no instruction.
+    #[inline(never)]
+    fn run_hot(&mut self) -> Result<bool, VmError> {
+        let Some(insts) = self.unit.instructions().as_slice() else {
+            return Ok(false);
+        };
+        let start = self.ip;
+
+        // SAFETY: `self.unit` holds the slice, and no instruction run here
+        // replaces `self.unit`.
+        let insts: &[inst::Inst] = unsafe { &*(insts as *const [inst::Inst]) };
+
+        loop {
+            let Some(inst) = insts.get(self.ip) else {
+                return Ok(self.ip != start);
+            };
+
+            let ip = self.ip;
+            self.ip = ip.wrapping_add(1);
+            self.last_ip_len = 1;
+
+            match inst.kind {
+                inst::Kind::Store {
+                    value: InstValue::Integer(constant),
+                    out,
+                } => {
+                    self.store_inline(out, Inline::Signed(constant))?;
+                }
+                inst::Kind::Store { value, out } => {
+                    self.op_store(value, out)?;
+                }
+                inst::Kind::Copy { addr, out } => {
+                    // A `for` loop copies its iterator before each call to
+                    // `next`. Over an integer range, step the iterator in place
+                    // and skip the copy and the call. Any other iterator calls
+                    // `next` through `run`.
+                    if let (Some(copy), Some(next)) = (out.as_addr(), insts.get(self.ip)) {
+                        let call_out = match next.kind {
+                            inst::Kind::CallFn {
+                                addr, args: 1, out, ..
+                            } if addr == copy => Some(out),
+                            inst::Kind::CallAssociated {
+                                hash,
+                                addr,
+                                args: 1,
+                                out,
+                            } if addr == copy && hash == Protocol::NEXT.hash => Some(out),
+                            _ => None,
+                        };
+
+                        if let Some(call_out) = call_out {
+                            if self.fused_range_step(addr, call_out, self.ip.wrapping_add(1))? {
+                                continue;
+                            }
+
+                            self.ip = ip;
+                            return Ok(ip != start);
+                        }
+                    }
+
+                    self.op_copy(addr, out)?;
+                }
+                inst::Kind::Move { addr, out } => {
+                    self.op_move(addr, out)?;
+                }
+                inst::Kind::Drop { set } => {
+                    self.op_drop(set)?;
+                }
+                inst::Kind::Jump { jump } => {
+                    self.op_jump(jump)?;
+                }
+                inst::Kind::JumpIf { cond, jump } => {
+                    self.op_jump_if(cond, jump)?;
+                }
+                inst::Kind::JumpIfNot { cond, jump } => {
+                    self.op_jump_if_not(cond, jump)?;
+                }
+                inst::Kind::IterNext { addr, jump, out } => {
+                    self.op_iter_next(addr, jump, out)?;
+                }
+                inst::Kind::Op { op, a, b, out } => {
+                    self.op_op(op, a, b, out)?;
+                }
+                inst::Kind::OpConst {
+                    op,
+                    a,
+                    b,
+                    value,
+                    out,
+                } => {
+                    self.op_op_const(op, a, b, value, out)?;
+                }
+                inst::Kind::Arithmetic { op, a, b, out } => {
+                    self.op_arithmetic(op, a, b, out)?;
+                }
+                inst::Kind::ArithmeticConst {
+                    op,
+                    a,
+                    b,
+                    value,
+                    out,
+                } => {
+                    self.op_arithmetic_const(op, a, b, value, out)?;
+                }
+                _ => {
+                    self.ip = ip;
+                    return Ok(ip != start);
+                }
+            }
+        }
+    }
+
     /// Evaluate a single instruction.
     pub(crate) fn run(
         &mut self,
@@ -3525,6 +3644,10 @@ impl Vm {
                     length: self.unit.instructions().end(),
                 }));
             };
+
+            if unlimited && inst.kind.is_hot() && self.run_hot()? {
+                continue;
+            }
 
             tracing::trace!(ip = ?self.ip, ?inst);
 

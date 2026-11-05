@@ -76,6 +76,14 @@ pub trait UnitStorage: self::sealed::Sealed + fmt::Debug + Default {
     /// Translate the given jump offset.
     #[doc(hidden)]
     fn translate(&self, jump: usize) -> Result<usize, BadJump>;
+
+    /// The instructions as a slice indexed by instruction pointer, when the
+    /// storage holds them that way and every jump is an index into it.
+    #[doc(hidden)]
+    #[inline]
+    fn as_slice(&self) -> Option<&[Inst]> {
+        None
+    }
 }
 
 /// Unit stored as array of instructions.
@@ -142,6 +150,11 @@ impl UnitStorage for ArrayUnit {
     #[inline]
     fn translate(&self, jump: usize) -> Result<usize, BadJump> {
         Ok(jump)
+    }
+
+    #[inline]
+    fn as_slice(&self) -> Option<&[Inst]> {
+        Some(&self.instructions)
     }
 }
 
